@@ -1,25 +1,26 @@
+use enum_map::EnumMap;
 use std::fmt;
+use std::ptr;
 
 #[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 // ARM7TDMI
 pub struct Cpu {
-    r: [u32; 16],
-    r_usr: [u32; 7],
-    r_fiq: [u32; 7],
-    r_svc: [u32; 2],
-    r_abt: [u32; 2],
-    r_irq: [u32; 2],
-    r_und: [u32; 2],
+    reg: [*mut u32; 16],
+    reg_usr_0_7: [u32; 8],
+    reg_usr_8_12: [u32; 5],
+    reg_usr_15: u32,
+    reg_fiq_8_12: [u32; 5],
+    reg_mode_13_14: EnumMap<RegBank, [u32; 2]>,
     cpsr: Cpsr,
-    spsr_fiq: Cpsr,
-    spsr_svc: Cpsr,
-    spsr_abt: Cpsr,
-    spsr_irq: Cpsr,
-    spsr_und: Cpsr,
+    spsr: EnumMap<RegBank, Cpsr>, //spsr_fiq: Cpsr,
+                                  //spsr_svc: Cpsr,
+                                  //spsr_abt: Cpsr,
+                                  //spsr_irq: Cpsr,
+                                  //spsr_und: Cpsr
 }
 
-pub struct Registers {}
+//pub struct Registers {}
 
 #[allow(dead_code)]
 impl Cpu {
@@ -29,19 +30,14 @@ impl Cpu {
             mode: Mode::User,
         };
         Cpu {
-            r: [0; 16],
-            r_usr: [0; 7],
-            r_fiq: [0; 7],
-            r_svc: [0; 2],
-            r_abt: [0; 2],
-            r_irq: [0; 2],
-            r_und: [0; 2],
-            cpsr: cpsr.clone(),
-            spsr_fiq: cpsr.clone(),
-            spsr_svc: cpsr.clone(),
-            spsr_abt: cpsr.clone(),
-            spsr_irq: cpsr.clone(),
-            spsr_und: cpsr.clone(),
+            reg: [ptr::null_mut(); 16],
+            reg_usr_0_7: [0; 8],
+            reg_usr_8_12: [0; 5],
+            reg_usr_15: 0,
+            reg_fiq_8_12: [0; 5],
+            reg_mode_13_14: enum_map! {_ => [0; 2]},
+            cpsr: cpsr,
+            spsr: enum_map! {_ => cpsr},
         }
     }
 
@@ -49,53 +45,19 @@ impl Cpu {
         if mode == self.cpsr.mode {
             return;
         }
-        // Leaving FIQ mode
         if self.cpsr.mode == Mode::FIQ {
-            self.r_fiq[0] = self.r[8];
-            self.r_fiq[1] = self.r[9];
-            self.r_fiq[2] = self.r[10];
-            self.r_fiq[4] = self.r[11];
-            self.r_fiq[5] = self.r[12];
-
-            self.r[8] = self.r_usr[0];
-            self.r[9] = self.r_usr[1];
-            self.r[10] = self.r_usr[2];
-            self.r[11] = self.r_usr[3];
-            self.r[12] = self.r_usr[4];
+            // Leaving FIQ mode
+            for i in 8..13 {
+                self.reg[i] = &mut self.reg_usr_8_12[i - 8] as *mut u32;
+            }
+        } else if mode == Mode::FIQ {
+            // Entering FIQ mode
+            for i in 8..13 {
+                self.reg[i] = &mut self.reg_fiq_8_12[i - 8] as *mut u32;
+            }
         }
-        // TODO: Save old registers
-        match mode {
-            Mode::User => {
-                self.r[13] = self.r_usr[5];
-                self.r[14] = self.r_usr[6];
-            }
-            Mode::FIQ => {
-                self.r[8] = self.r_fiq[0];
-                self.r[9] = self.r_fiq[1];
-                self.r[10] = self.r_fiq[2];
-                self.r[11] = self.r_fiq[3];
-                self.r[12] = self.r_fiq[4];
-                self.r[13] = self.r_fiq[5];
-                self.r[14] = self.r_fiq[6];
-            }
-            Mode::Supervisor => {
-                self.r[13] = self.r_svc[0];
-                self.r[14] = self.r_svc[1];
-            }
-            Mode::Abort => {
-                self.r[13] = self.r_abt[0];
-                self.r[14] = self.r_abt[1];
-            }
-            Mode::Undefined => {
-                self.r[13] = self.r_und[0];
-                self.r[14] = self.r_und[1];
-            }
-            Mode::System => {
-                self.r[13] = self.r_usr[5];
-                self.r[14] = self.r_usr[6];
-            }
-            m => panic!(format!("Mode {:?} not implemented", m)),
-        }
+        self.reg[13] = &mut self.reg_mode_13_14[RegBank::from(mode)][0] as *mut u32;
+        self.reg[14] = &mut self.reg_mode_13_14[RegBank::from(mode)][1] as *mut u32;
         self.cpsr.mode = mode;
     }
 }
@@ -106,37 +68,44 @@ impl fmt::Display for Cpu {
             f,
             "    Sys/User   FIQ    Supervis  Abort     IRQ    Undefined\n"
         )?;
-        for i in 0..8 {
-            write!(f, "R{}  {:08x}\n", i, self.r[i])?;
-        }
-        for i in 8..10 {
-            write!(f, "R{}  {:08x} {:08x}\n", i, self.r[i], self.r_fiq[i - 8])?;
-        }
-        for i in 10..13 {
-            write!(f, "R{} {:08x} {:08x}\n", i, self.r[i], self.r_fiq[i - 8])?;
-        }
-        for i in 13..15 {
-            write!(
-                f,
-                "R{} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x}\n",
-                i,
-                self.r[i],
-                self.r_fiq[i - 8],
-                self.r_svc[i - 13],
-                self.r_abt[i - 13],
-                self.r_irq[i - 13],
-                self.r_und[i - 13]
-            )?;
-        }
-        write!(f, "R{} {:08x}\n", 15, self.r[15])?;
-        write!(f, "CPSR {:032b}\n", self.cpsr.status)?;
-        write!(f, "SPSR {:032b}\n", self.cpsr.status)?;
         Ok(())
     }
+    //    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    //        write!(
+    //            f,
+    //            "    Sys/User   FIQ    Supervis  Abort     IRQ    Undefined\n"
+    //        )?;
+    //        for i in 0..8 {
+    //            write!(f, "R{}  {:08x}\n", i, self.r[i])?;
+    //        }
+    //        for i in 8..10 {
+    //            write!(f, "R{}  {:08x} {:08x}\n", i, self.r[i], self.r_fiq[i - 8])?;
+    //        }
+    //        for i in 10..13 {
+    //            write!(f, "R{} {:08x} {:08x}\n", i, self.r[i], self.r_fiq[i - 8])?;
+    //        }
+    //        for i in 13..15 {
+    //            write!(
+    //                f,
+    //                "R{} {:08x} {:08x} {:08x} {:08x} {:08x} {:08x}\n",
+    //                i,
+    //                self.r[i],
+    //                self.r_fiq[i - 8],
+    //                self.r_svc[i - 13],
+    //                self.r_abt[i - 13],
+    //                self.r_irq[i - 13],
+    //                self.r_und[i - 13]
+    //            )?;
+    //        }
+    //        write!(f, "R{} {:08x}\n", 15, self.r[15])?;
+    //        write!(f, "CPSR {:032b}\n", self.cpsr.status)?;
+    //        write!(f, "SPSR {:032b}\n", self.cpsr.status)?;
+    //        Ok(())
+    //    }
 }
 
 // CPU Mode
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Mode {
     OldUser = 0x00,
     OldFIQ = 0x01,
@@ -151,8 +120,32 @@ pub enum Mode {
     System = 0x1F,
 }
 
+#[derive(Debug, Enum)]
+pub enum RegBank {
+    User = 0,
+    FIQ = 1,
+    IRQ = 2,
+    Supervisor = 3,
+    Abort = 4,
+    Undefined = 5,
+}
+
+impl From<Mode> for RegBank {
+    fn from(mode: Mode) -> Self {
+        match mode {
+            Mode::User => RegBank::User,
+            Mode::FIQ => RegBank::FIQ,
+            Mode::IRQ => RegBank::IRQ,
+            Mode::Supervisor => RegBank::Supervisor,
+            Mode::Undefined => RegBank::Undefined,
+            Mode::System => RegBank::User,
+            _ => RegBank::User,
+        }
+    }
+}
+
 #[allow(dead_code)]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 // Current Program Status Register
 pub struct Cpsr {
     status: u32,
