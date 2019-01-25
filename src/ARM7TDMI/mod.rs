@@ -141,10 +141,10 @@ impl fmt::Display for Cpu {
 // CPU Mode
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Mode {
-    OldUser = 0x00,
-    OldFIQ = 0x01,
-    OldIRQ = 0x02,
-    OldSupervisor = 0x03,
+    //OldUser = 0x00,
+    //OldFIQ = 0x01,
+    //OldIRQ = 0x02,
+    //OldSupervisor = 0x03,
     User = 0x10,
     FIQ = 0x11,
     IRQ = 0x12,
@@ -203,4 +203,130 @@ impl Cpsr {
         self.status |= mode as u32;
         self.mode = mode;
     }
+}
+
+//  |..3 ..................2 ..................1 ..................0|
+//  |1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0|
+//  |_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___| DataProc
+//  |_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Rs___|0|Typ|1|__Rm___| DataProc
+//  |_Cond__|0_0_1|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___| DataProc
+//  |_Cond__|0_0_1_1_0|P|1|0|_Field_|__Rd___|_Shift_|___Immediate___| PSR Imm
+//  |_Cond__|0_0_0_1_0|P|L|0|_Field_|__Rd___|0_0_0_0|0_0_0_0|__Rm___| PSR Reg
+//  |_Cond__|0_0_0_1_0_0_1_0_1_1_1_1_1_1_1_1_1_1_1_1|0_0|L|1|__Rn___| BX,BLX
+//  |1_1_1_0|0_0_0_1_0_0_1_0|_____immediate_________|0_1_1_1|_immed_| BKPT ARM9
+//  |_Cond__|0_0_0_1_0_1_1_0_1_1_1_1|__Rd___|1_1_1_1|0_0_0_1|__Rm___| CLZ  ARM9
+//  |_Cond__|0_0_0_1_0|Op_|0|__Rn___|__Rd___|0_0_0_0|0_1_0_1|__Rm___| QALU ARM9
+//  |_Cond__|0_0_0_0_0_0|A|S|__Rd___|__Rn___|__Rs___|1_0_0_1|__Rm___| Multiply
+//  |_Cond__|0_0_0_0_1|U|A|S|_RdHi__|_RdLo__|__Rs___|1_0_0_1|__Rm___| MulLong
+//  |_Cond__|0_0_0_1_0|Op_|0|Rd/RdHi|Rn/RdLo|__Rs___|1|y|x|0|__Rm___| MulHalfARM9
+//  |_Cond__|0_0_0_1_0|B|0_0|__Rn___|__Rd___|0_0_0_0|1_0_0_1|__Rm___| TransSwp12
+//  |_Cond__|0_0_0|P|U|0|W|L|__Rn___|__Rd___|0_0_0_0|1|S|H|1|__Rm___| TransReg10
+//  |_Cond__|0_0_0|P|U|1|W|L|__Rn___|__Rd___|OffsetH|1|S|H|1|OffsetL| TransImm10
+//  |_Cond__|0_1_0|P|U|B|W|L|__Rn___|__Rd___|_________Offset________| TransImm9
+//  |_Cond__|0_1_1|P|U|B|W|L|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___| TransReg9
+//  |_Cond__|0_1_1|________________xxx____________________|1|__xxx__| Undefined
+//  |_Cond__|1_0_0|P|U|S|W|L|__Rn___|__________Register_List________| BlockTrans
+//  |_Cond__|1_0_1|L|___________________Offset______________________| B,BL,BLX
+//  |_Cond__|1_1_0|P|U|N|W|L|__Rn___|__CRd__|__CP#__|____Offset_____| CoDataTrans
+//  |_Cond__|1_1_0_0_0_1_0|L|__Rn___|__Rd___|__CP#__|_CPopc_|__CRm__| CoRR ARM9
+//  |_Cond__|1_1_1_0|_CPopc_|__CRn__|__CRd__|__CP#__|_CP__|0|__CRm__| CoDataOp
+//  |_Cond__|1_1_1_0|CPopc|L|__CRn__|__Rd___|__CP#__|_CP__|1|__CRm__| CoRegTrans
+//  |_Cond__|1_1_1_1|_____________Ignored_by_Processor______________| SWI
+
+fn test_bit(v: u32, bit: u8) -> bool {
+    (v & (1 << bit)) != 0
+}
+
+fn decode_armv4_op(op: u32) {
+    match op & 0b00001110000000000000000000000000 {
+    0b0000000000000000000000000000 => {
+        // Multiply
+        // Multiply long
+        // Signel data swap
+        // Branch and Exchange
+        // Halfword data transfer, register offset
+        // Halfword data transfer, immediate offset
+    },
+    0b0010000000000000000000000000 => {
+        // Data processing (DataProc)
+        // FSR transfer (TransFSR)
+    },
+    0b0100000000000000000000000000 => {
+        // TransImm9
+    },
+    0b0110000000000000000000000000 => {
+        // Single data transfer (TransReg9)
+        // Undefined
+    },
+    0b1000000000000000000000000000 => {
+        // Data block transfer (BlockTrans)
+    },
+    0b1010000000000000000000000000 => {
+        // Branch (B,BL,BLX)
+    },
+    0b1100000000000000000000000000 => {
+        // CoDataTrans
+    },
+    0b1110000000000000000000000000 => {
+        // CoDataOp
+        // CoRegTrans
+        // SWI
+    },
+    _ => unreachable!(),
+    }
+}
+
+#[allow(dead_code)]
+const OP_MASK_COND: u32 = 0b11110000000000000000000000000000;
+
+const OP_MASK_PREFIX_DATAPROC: u32 =            0b00000000000000000000000000000000;
+const OP_MASK_PREFIX_MASK_DATAPROC: u32 =       0b00001100000000000000000000000000;
+const OP_MASK_PREFIX_LOADSTORE: u32 =           0b00000100000000000000000000000000;
+const OP_MASK_PREFIX_MASK_LOADSTORE: u32 =      0b00001100000000000000000000000000;
+const OP_MASK_PREFIX_MULTILOADSTORE: u32 =      0b00001000000000000000000000000000;
+const OP_MASK_PREFIX_MASK_MULTILOADSTORE: u32 = 0b00001110000000000000000000000000;
+const OP_MASK_PREFIX_BRANCH: u32 =              0b00001010000000000000000000000000;
+const OP_MASK_PREFIX_MASK_BRANCH: u32 =         0b00001110000000000000000000000000;
+const OP_MASK_PREFIX_SWI: u32 =                 0b00001111000000000000000000000000;
+const OP_MASK_PREFIX_MASK_SWI: u32 =            0b00001111000000000000000000000000;
+//const OP_MASK_PREFIX_ PSR Imm
+//const OP_MASK_PREFIX_ PSR Reg
+//const OP_MASK_PREFIX_ BX,BLX
+//const OP_MASK_PREFIX_ BKPT ARM9
+//const OP_MASK_PREFIX_ CLZ  ARM9
+//const OP_MASK_PREFIX_ QALU ARM9
+//const OP_MASK_PREFIX_ Multiply
+//const OP_MASK_PREFIX_ MulLong
+//const OP_MASK_PREFIX_ MulHalfARM9
+//const OP_MASK_PREFIX_ TransSwp12
+//const OP_MASK_PREFIX_ TransReg10
+//const OP_MASK_PREFIX_ TransImm10
+//const OP_MASK_PREFIX_ TransImm9
+//const OP_MASK_PREFIX_ TransReg9
+//const OP_MASK_PREFIX_ Undefined
+//const OP_MASK_PREFIX_ BlockTrans
+//const OP_MASK_PREFIX_ B,BL,BLX
+//const OP_MASK_PREFIX_ CoDataTrans
+//const OP_MASK_PREFIX_ CoRR ARM9
+//const OP_MASK_PREFIX_ CoDataOp
+//const OP_MASK_PREFIX_ CoRegTrans
+//const OP_MASK_PREFIX_ SWI
+
+pub enum Cond {
+    EQ = 0b0000, // Z=1 (equal)
+    NE = 0b0001, // Z=0 (not equal)
+    CS = 0b0010, // C=1 (unsigned higher or same)
+    CC = 0b0011, // C=0 (unsigned lower)
+    MI = 0b0100, // N=1 (negative)
+    PL = 0b0101, // N=0 (positive or zero)
+    VS = 0b0110, // V=1 (overflow)
+    VC = 0b0111, // V=0 (no overflow)
+    HI = 0b1000, // C=1 and Z=0 (unsigned higher)
+    LS = 0b1001, // C=0 or Z=1 (unsigned lower or same)
+    GE = 0b1010, // N=V (greater or equal, >=)
+    LT = 0b1011, // N!=V (less than, <)
+    GT = 0b1100, // Z=0 and N=V (greater than, >)
+    LE = 0b1101, // Z=1 or N!=V(less or equal, <=)
+    AL = 0b1110, // always
+    NV = 0b1111, // reserverd
 }
