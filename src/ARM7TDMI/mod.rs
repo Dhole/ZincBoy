@@ -1,12 +1,13 @@
+#![allow(dead_code)]
+
+mod op_raw;
+
 use enum_map::EnumMap;
 use std::fmt;
 use std::ptr;
 
-#[allow(dead_code)]
 const REG_SP: usize = 13;
-#[allow(dead_code)]
 const REG_LR: usize = 14;
-#[allow(dead_code)]
 const REG_PC: usize = 15;
 
 #[derive(Debug, PartialEq)]
@@ -109,7 +110,12 @@ impl fmt::Display for Cpu {
         //write!(f, "CPSR\t{:032b}\n", self.cpsr.status)?;
         write!(f, "CPSR")?;
         for (name, mask) in FLAG_LIST.iter() {
-            write!(f, "\t{}:{:01b}\n", name, (self.cpsr.status & mask != 0) as u32)?;
+            write!(
+                f,
+                "\t{}:{:01b}\n",
+                name,
+                (self.cpsr.status & mask != 0) as u32
+            )?;
         }
         write!(f, "\tM:{:05b}\n", self.cpsr.status & FLAG_MASK_M4_M0)?;
         write!(f, "SPSR")?;
@@ -188,7 +194,16 @@ const FLAG_MASK_F: u32 = 1 << 6; // FIQ disable
 const FLAG_MASK_T: u32 = 1 << 5; // State Bit
 const FLAG_MASK_M4_M0: u32 = 0b11111;
 
-const FLAG_LIST: [(&str, u32); 8] = [("N", FLAG_MASK_N), ("Z", FLAG_MASK_Z), ("C", FLAG_MASK_C), ("V", FLAG_MASK_V), ("Q", FLAG_MASK_Q), ("I", FLAG_MASK_I), ("F", FLAG_MASK_F), ("T", FLAG_MASK_T)];
+const FLAG_LIST: [(&str, u32); 8] = [
+    ("N", FLAG_MASK_N),
+    ("Z", FLAG_MASK_Z),
+    ("C", FLAG_MASK_C),
+    ("V", FLAG_MASK_V),
+    ("Q", FLAG_MASK_Q),
+    ("I", FLAG_MASK_I),
+    ("F", FLAG_MASK_F),
+    ("T", FLAG_MASK_T),
+];
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 // Current Program Status Register
@@ -238,79 +253,43 @@ fn test_bit(v: u32, bit: u8) -> bool {
 }
 
 fn decode_armv4_op(op: u32) {
-    match op & 0b00001110000000000000000000000000 {
-    0b0000000000000000000000000000 => {
-        // Multiply
-        // Multiply long
-        // Signel data swap
-        // Branch and Exchange
-        // Halfword data transfer, register offset
-        // Halfword data transfer, immediate offset
-    },
-    0b0010000000000000000000000000 => {
-        // Data processing (DataProc)
-        // FSR transfer (TransFSR)
-    },
-    0b0100000000000000000000000000 => {
-        // TransImm9
-    },
-    0b0110000000000000000000000000 => {
-        // Single data transfer (TransReg9)
-        // Undefined
-    },
-    0b1000000000000000000000000000 => {
-        // Data block transfer (BlockTrans)
-    },
-    0b1010000000000000000000000000 => {
-        // Branch (B,BL,BLX)
-    },
-    0b1100000000000000000000000000 => {
-        // CoDataTrans
-    },
-    0b1110000000000000000000000000 => {
-        // CoDataOp
-        // CoRegTrans
-        // SWI
-    },
-    _ => unreachable!(),
+    match op & 0b0000_111_0000000000000000000000000 {
+        0b0000000000000000000000000000 => {
+            // Multiply
+            // Multiply long
+            // Single data swap
+            // Branch and Exchange
+            // Halfword data transfer, register offset
+            // Halfword data transfer, immediate offset
+        }
+        0b001_0000000000000000000000000 => {
+            // Data processing (DataProc)
+            // FSR transfer (TransFSR)
+        }
+        0b010_0000000000000000000000000 => {
+            // TransImm9
+        }
+        0b011_0000000000000000000000000 => {
+            // Single data transfer (TransReg9)
+            // Undefined
+        }
+        0b100_0000000000000000000000000 => {
+            // Data block transfer (BlockTrans)
+        }
+        0b101_0000000000000000000000000 => {
+            // Branch (B,BL,BLX)
+        }
+        0b110_0000000000000000000000000 => {
+            // CoDataTrans
+        }
+        0b111_0000000000000000000000000 => {
+            // CoDataOp
+            // CoRegTrans
+            // SWI
+        }
+        _ => unreachable!(),
     }
 }
-
-#[allow(dead_code)]
-const OP_MASK_COND: u32 = 0b11110000000000000000000000000000;
-
-const OP_MASK_PREFIX_DATAPROC: u32 =            0b00000000000000000000000000000000;
-const OP_MASK_PREFIX_MASK_DATAPROC: u32 =       0b00001100000000000000000000000000;
-const OP_MASK_PREFIX_LOADSTORE: u32 =           0b00000100000000000000000000000000;
-const OP_MASK_PREFIX_MASK_LOADSTORE: u32 =      0b00001100000000000000000000000000;
-const OP_MASK_PREFIX_MULTILOADSTORE: u32 =      0b00001000000000000000000000000000;
-const OP_MASK_PREFIX_MASK_MULTILOADSTORE: u32 = 0b00001110000000000000000000000000;
-const OP_MASK_PREFIX_BRANCH: u32 =              0b00001010000000000000000000000000;
-const OP_MASK_PREFIX_MASK_BRANCH: u32 =         0b00001110000000000000000000000000;
-const OP_MASK_PREFIX_SWI: u32 =                 0b00001111000000000000000000000000;
-const OP_MASK_PREFIX_MASK_SWI: u32 =            0b00001111000000000000000000000000;
-//const OP_MASK_PREFIX_ PSR Imm
-//const OP_MASK_PREFIX_ PSR Reg
-//const OP_MASK_PREFIX_ BX,BLX
-//const OP_MASK_PREFIX_ BKPT ARM9
-//const OP_MASK_PREFIX_ CLZ  ARM9
-//const OP_MASK_PREFIX_ QALU ARM9
-//const OP_MASK_PREFIX_ Multiply
-//const OP_MASK_PREFIX_ MulLong
-//const OP_MASK_PREFIX_ MulHalfARM9
-//const OP_MASK_PREFIX_ TransSwp12
-//const OP_MASK_PREFIX_ TransReg10
-//const OP_MASK_PREFIX_ TransImm10
-//const OP_MASK_PREFIX_ TransImm9
-//const OP_MASK_PREFIX_ TransReg9
-//const OP_MASK_PREFIX_ Undefined
-//const OP_MASK_PREFIX_ BlockTrans
-//const OP_MASK_PREFIX_ B,BL,BLX
-//const OP_MASK_PREFIX_ CoDataTrans
-//const OP_MASK_PREFIX_ CoRR ARM9
-//const OP_MASK_PREFIX_ CoDataOp
-//const OP_MASK_PREFIX_ CoRegTrans
-//const OP_MASK_PREFIX_ SWI
 
 pub enum Cond {
     EQ = 0b0000, // Z=1 (equal)
