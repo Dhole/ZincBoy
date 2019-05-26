@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-mod op_raw;
+pub mod op_raw;
 
 use enum_map::EnumMap;
 use std::fmt;

@@ -113,10 +113,11 @@ fn main() -> Result<(), io::Error> {
     }
 
     for (op_name, op) in &ops {
-        write!(f, "const OP_{}_VAL:  u32 = 0b{};\n", op_name.to_uppercase(), op.value)?;
-        write!(f, "const OP_{}_MASK: u32 = 0b{};\n\n", op_name.to_uppercase(), op.mask)?;
+        write!(f, "pub const OP_{}_VAL:  u32 = 0b{};\n", op_name.to_uppercase(), op.value)?;
+        write!(f, "pub const OP_{}_MASK: u32 = 0b{};\n\n", op_name.to_uppercase(), op.mask)?;
         let op_name = format!("op_{}", op_name).to_pascal_case();
-        write!(f, "struct {} {{\n", op_name)?;
+        write!(f, "#[derive(Debug)]\n")?;
+        write!(f, "pub struct {} {{\n", op_name)?;
         for param in &op.params {
             write!( f, "  {}: {},\n",
                 param.name,
@@ -126,7 +127,7 @@ fn main() -> Result<(), io::Error> {
         write!(f, "}}\n\n")?;
 
         write!(f, "impl {} {{\n", op_name)?;
-        write!(f, "  fn new(v: u32) -> Self {{\n")?;
+        write!(f, "  pub fn new(v: u32) -> Self {{\n")?;
         write!(f, "    Self {{\n")?;
         let max_len = op.params.iter().max_by_key(|p| p.name.len()).unwrap().name.len();
         for param in &op.params {
@@ -144,7 +145,8 @@ fn main() -> Result<(), io::Error> {
         write!(f, "}}\n\n")?;
     }
 
-    write!(f, "enum OpRaw {{\n")?;
+    write!(f, "#[derive(Debug)]\n")?;
+    write!(f, "pub enum OpRaw {{\n")?;
     for (op_name, _) in &ops {
         write!(f, "  {0}(Op{0}),\n", op_name.to_pascal_case())?;
     }
@@ -154,7 +156,7 @@ fn main() -> Result<(), io::Error> {
     let max_len_pascal = ops.iter().max_by_key(|(name, _)| name.to_pascal_case().len())
         .unwrap().0.to_pascal_case().len();
     write!(f, "impl OpRaw {{\n")?;
-    write!(f, "  fn new(v: u32) -> Self {{\n")?;
+    write!(f, "  pub fn new(v: u32) -> Self {{\n")?;
     write!(f, "    match v {{\n")?;
     for (op_name, _) in &ops {
         let pad_snake = max_len_snake - op_name.len();
