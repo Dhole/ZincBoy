@@ -8,6 +8,8 @@ build = "build.rs"
 [dependencies]
 enum-map = "0.4.1"
 arrayref = "0.3.5"
+num-traits = "0.2"
+num-derive = "0.2"
 
 [build-dependencies]
 maplit = "1.0.1"

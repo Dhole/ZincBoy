@@ -20,6 +20,28 @@ struct Param {
     end: usize,
 }
 
+enum ParamType {
+    Bool,
+    U8,
+    U16,
+    U32,
+}
+
+impl Param {
+    fn typ(&self) -> ParamType {
+        let len = self.end - self.start;
+        if len == 1 {
+            return ParamType::Bool;
+        } else if len > 16 {
+            return ParamType::U32;
+        } else if len > 8 {
+            return ParamType::U16;
+        } else {
+            return ParamType::U8;
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Op {
     value: String,
@@ -51,7 +73,8 @@ fn main() -> Result<(), io::Error> {
     "psr_imm"       => "|_Cond__|0_0_1_1_0|P|1|0|_Field_|__Rd___|_Shift_|___Immediate___|",  // PSR Imm
     "psr_reg"       => "|_Cond__|0_0_0_1_0|P|L|0|_Field_|__Rd___|0_0_0_0|0_0_0_0|__Rm___|",  // PSR Reg
     "branch_reg"    => "|_Cond__|0_0_0_1_0_0_1_0_1_1_1_1_1_1_1_1_1_1_1_1|0_0|L|1|__Rn___|",  // BX,BLX
-    "bkpt"          => "|1_1_1_0|0_0_0_1_0_0_1_0|________imm0___________|0_1_1_1|__imm1_|",  // ARM9 =>BKPT
+    // "bkpt"       => "|1_1_1_0|0_0_0_1_0_0_1_0|________imm0___________|0_1_1_1|__imm1_|",  // ARM9 =>BKPT
+    "bkpt"          => "|_Cond__|0_0_0_1_0_0_1_0|________imm0___________|0_1_1_1|__imm1_|",  // ARM9 =>BKPT
     "clz"           => "|_Cond__|0_0_0_1_0_1_1_0_1_1_1_1|__Rd___|1_1_1_1|0_0_0_1|__Rm___|",  // ARM9 =>CLZ
     "qalu"          => "|_Cond__|0_0_0_1_0|Op_|0|__Rn___|__Rd___|0_0_0_0|0_1_0_1|__Rm___|",  // ARM9 =>QALU
     "multiply"      => "|_Cond__|0_0_0_0_0_0|A|S|__Rd___|__Rn___|__Rs___|1_0_0_1|__Rm___|",  // Multiply
@@ -85,7 +108,7 @@ fn main() -> Result<(), io::Error> {
             if i % 2 == 1 && c == '|' {
                 if is_param {
                     params.push(Param {
-                        name: elems[elem_idx].replace("_", ""),
+                        name: elems[elem_idx].replace("_", "").to_snake_case(),
                         start: 31 - (i - 1) / 2,
                         end: 31 - (param_end) / 2,
                     })
@@ -115,13 +138,18 @@ fn main() -> Result<(), io::Error> {
     for (op_name, op) in &ops {
         write!(f, "pub const OP_{}_VAL:  u32 = 0b{};\n", op_name.to_uppercase(), op.value)?;
         write!(f, "pub const OP_{}_MASK: u32 = 0b{};\n\n", op_name.to_uppercase(), op.mask)?;
-        let op_name = format!("op_{}", op_name).to_pascal_case();
+        let op_name = format!("op_raw_{}", op_name).to_pascal_case();
         write!(f, "#[derive(Debug)]\n")?;
         write!(f, "pub struct {} {{\n", op_name)?;
         for param in &op.params {
             write!( f, "  {}: {},\n",
                 param.name,
-                if param.start == param.end { "bool" } else { "u8" }
+                match param.typ() {
+                    ParamType::Bool => "bool",
+                    ParamType::U32 => "u32",
+                    ParamType::U16 => "u16",
+                    ParamType::U8 => "u8",
+                }
             )?;
         }
         write!(f, "}}\n\n")?;
@@ -132,11 +160,16 @@ fn main() -> Result<(), io::Error> {
         let max_len = op.params.iter().max_by_key(|p| p.name.len()).unwrap().name.len();
         for param in &op.params {
             let mask = (param.start..param.end+1).map(|i| 1 << i).fold(0, |acc, x| acc+x);
-            write!(f, "      {0:<max_len$}: (v & 0b{1:032b} >> {2:2}) {3},\n",
+            write!(f, "      {0:<max_len$}: ((v & 0b{1:032b}) >> {2:2}) {3},\n",
                 param.name,
                 mask,
                 param.start,
-                if param.start == param.end { "!= 0" } else { "as u8" },
+                match param.typ() {
+                    ParamType::Bool => "!= 0",
+                    ParamType::U32 => "as u32",
+                    ParamType::U16 => "as u16",
+                    ParamType::U8 => "as u8",
+                },
                 max_len = max_len
             )?;
         }
@@ -148,7 +181,7 @@ fn main() -> Result<(), io::Error> {
     write!(f, "#[derive(Debug)]\n")?;
     write!(f, "pub enum OpRaw {{\n")?;
     for (op_name, _) in &ops {
-        write!(f, "  {0}(Op{0}),\n", op_name.to_pascal_case())?;
+        write!(f, "  {0}(OpRaw{0}),\n", op_name.to_pascal_case())?;
     }
     write!(f, "}}\n\n")?;
 
@@ -162,7 +195,7 @@ fn main() -> Result<(), io::Error> {
         let pad_snake = max_len_snake - op_name.len();
         let pad_pascal = max_len_pascal - op_name.to_pascal_case().len();
         write!(f, "      _ if (v & OP_{op_up}_MASK{0:<pad0$}) == OP_{op_up}_VAL{0:<pad0$} => \
-               OpRaw::{op}({0:>pad1$}{0:>pad1$}Op{op}::new(v)),\n",
+               OpRaw::{op}({0:>pad1$}{0:>pad1$}OpRaw{op}::new(v)),\n",
                "",
                op_up= op_name.to_uppercase(),
                op=op_name.to_pascal_case(),
@@ -171,7 +204,32 @@ fn main() -> Result<(), io::Error> {
     }
     write!(f, "      _ => unreachable!(),\n")?;
     write!(f, "    }}\n")?;
+    write!(f, "  }}\n\n")?;
+    write!(f, "  pub fn to_op(&self) -> Op {{\n")?;
+    write!(f, "    match self {{\n")?;
+    for (op_name, _) in &ops {
+        let pad_pascal = max_len_pascal - op_name.to_pascal_case().len();
+        write!(f, "      OpRaw::{op}({0:<pad$}v) => Op{{cond: Cond::from_u8(v.cond).unwrap()}},\n",
+               "",
+               op=op_name.to_pascal_case(),
+               pad=pad_pascal)?;
+    }
+    write!(f, "    }}\n")?;
     write!(f, "  }}\n")?;
+    write!(f, "}}\n\n")?;
+
+    for (op_name, op) in &ops {
+        write!(f, "#[derive(Debug)]\n")?;
+        write!(f, "pub struct Op{} {{\n", op_name.to_pascal_case())?;
+        for param in &op.params {
+            write!(f, "  {}: bool,\n", param.name)?;
+        }
+        write!(f, "}}\n\n")?;
+    }
+
+    write!(f, "#[derive(Debug)]\n")?;
+    write!(f, "pub struct Op {{\n")?;
+    write!(f, "  cond: Cond,\n")?;
     write!(f, "}}\n")?;
 
     Ok(())
