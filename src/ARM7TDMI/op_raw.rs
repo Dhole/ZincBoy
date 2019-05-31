@@ -22,7 +22,7 @@ pub enum Cond {
 }
 
 #[derive(Debug, FromPrimitive, ToPrimitive)]
-pub enum AluOp {
+pub enum OpAluOp {
     AND = 0b0000, // AND logical;        Rd = Rn AND Op2
     EOR = 0b0001, // XOR logical;        Rd = XOR Op2
     SUB = 0b0010, // substract;          Rd = Rn - Op2
@@ -39,6 +39,42 @@ pub enum AluOp {
     MOV = 0b1101, // move;               Rd = Op2
     BIC = 0b1110, // bit clear;          Rd = Rn AND NOT Op2
     MVN = 0b1111, // not;                Rd = NOT Op2
+}
+
+#[derive(Debug, FromPrimitive, ToPrimitive)]
+pub enum ShiftType {
+    LSL = 0,
+    LSR = 1,
+    ASR = 2,
+    ROR = 3,
+}
+
+pub enum OpAluOp2RegisterShift {
+    Amount(u8),
+    Register(u8),
+}
+
+pub struct OpAluOp2Register {
+    shift: OpAluOp2RegisterShift,
+    st: ShiftType,
+    rm: u8,
+}
+
+pub struct OpAluOp2Immediate {
+    shift: u8,
+    immediate: u8,
+}
+
+pub enum OpAluOp2 {
+    Register(),
+    Immediate(OpAluOp2Immediate),
+}
+
+pub struct OpAlu {
+    op: OpAluOp,
+    rn: u8,
+    rd: u8,
+    op2: OpAluOp2,
 }
 
 include!(concat!(env!("OUT_DIR"), "/op_raw.rs"));
