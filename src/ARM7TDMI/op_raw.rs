@@ -1,6 +1,8 @@
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 
+include!(concat!(env!("OUT_DIR"), "/op_raw.rs"));
+
 #[derive(Debug, FromPrimitive, ToPrimitive)]
 pub enum Cond {
     EQ = 0b0000, // Z=1 (equal)
@@ -22,7 +24,7 @@ pub enum Cond {
 }
 
 #[derive(Debug, FromPrimitive, ToPrimitive)]
-pub enum OpAluOp {
+pub enum AluOp {
     AND = 0b0000, // AND logical;        Rd = Rn AND Op2
     EOR = 0b0001, // XOR logical;        Rd = XOR Op2
     SUB = 0b0010, // substract;          Rd = Rn - Op2
@@ -49,32 +51,99 @@ pub enum ShiftType {
     ROR = 3,
 }
 
-pub enum OpAluOp2RegisterShift {
-    Amount(u8),
+#[derive(Debug)]
+pub enum AluOp2RegisterShift {
+    Immediate(u8),
     Register(u8),
 }
 
-pub struct OpAluOp2Register {
-    shift: OpAluOp2RegisterShift,
+#[derive(Debug)]
+pub struct AluOp2Register {
+    shift: AluOp2RegisterShift,
     st: ShiftType,
     rm: u8,
 }
 
-pub struct OpAluOp2Immediate {
+#[derive(Debug)]
+pub struct AluOp2Immediate {
     shift: u8,
     immediate: u8,
 }
 
-pub enum OpAluOp2 {
-    Register(),
-    Immediate(OpAluOp2Immediate),
+#[derive(Debug)]
+pub enum AluOp2 {
+    Immediate(AluOp2Immediate),
+    Register(AluOp2Register),
 }
 
-pub struct OpAlu {
-    op: OpAluOp,
+#[derive(Debug)]
+pub struct Alu {
+    op: AluOp,
     rn: u8,
     rd: u8,
-    op2: OpAluOp2,
+    op2: AluOp2,
 }
 
-include!(concat!(env!("OUT_DIR"), "/op_raw.rs"));
+#[derive(Debug)]
+pub enum OpBase {
+    Alu(Alu),
+}
+
+#[derive(Debug)]
+pub struct Op {
+    cond: Cond,
+    base: OpBase,
+}
+
+impl OpRaw {
+    pub fn to_op(&self) -> Option<Op> {
+        let op = match self {
+            OpRaw::DataProcA(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Alu(Alu {
+                    op: AluOp::from_u8(o.op).unwrap(),
+                    rn: o.rn,
+                    rd: o.rd,
+                    op2: AluOp2::Register(AluOp2Register {
+                        shift: AluOp2RegisterShift::Immediate(o.shift),
+                        st: ShiftType::from_u8(o.typ).unwrap(),
+                        rm: o.rm,
+                    }),
+                }),
+            },
+            OpRaw::DataProcB(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Alu(Alu {
+                    op: AluOp::from_u8(o.op).unwrap(),
+                    rn: o.rn,
+                    rd: o.rd,
+                    op2: AluOp2::Register(AluOp2Register {
+                        shift: AluOp2RegisterShift::Register(o.rs),
+                        st: ShiftType::from_u8(o.typ).unwrap(),
+                        rm: o.rm,
+                    }),
+                }),
+            },
+            OpRaw::DataProcC(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Alu(Alu {
+                    op: AluOp::from_u8(o.op).unwrap(),
+                    rn: o.rn,
+                    rd: o.rd,
+                    op2: AluOp2::Immediate(AluOp2Immediate {
+                        shift: o.shift,
+                        immediate: o.immediate,
+                    }),
+                }),
+            },
+            // OpRaw::DataProcB(o) => Op {
+            //     cond: Cond::from_u8(o.cond).unwrap(),
+            // },
+            // OpRaw::DataProcC(o) => Op {
+            //     cond: Cond::from_u8(o.cond).unwrap(),
+            // },
+            _ => return None,
+        };
+        Some(op)
+    }
+}

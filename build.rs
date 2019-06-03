@@ -30,11 +30,11 @@ enum ParamType {
 impl Param {
     fn typ(&self) -> ParamType {
         let len = self.end - self.start;
-        if len == 1 {
+        if len == 0 {
             return ParamType::Bool;
-        } else if len > 16 {
+        } else if len > 15 {
             return ParamType::U32;
-        } else if len > 8 {
+        } else if len > 7 {
             return ParamType::U16;
         } else {
             return ParamType::U8;
@@ -204,33 +204,34 @@ fn main() -> Result<(), io::Error> {
     }
     write!(f, "      _ => unreachable!(),\n")?;
     write!(f, "    }}\n")?;
-    write!(f, "  }}\n\n")?;
-    write!(f, "  pub fn to_op(&self) -> Op {{\n")?;
-    write!(f, "    match self {{\n")?;
-    for (op_name, _) in &ops {
-        let pad_pascal = max_len_pascal - op_name.to_pascal_case().len();
-        write!(f, "      OpRaw::{op}({0:<pad$}v) => Op{{cond: Cond::from_u8(v.cond).unwrap()}},\n",
-               "",
-               op=op_name.to_pascal_case(),
-               pad=pad_pascal)?;
-    }
-    write!(f, "    }}\n")?;
     write!(f, "  }}\n")?;
     write!(f, "}}\n\n")?;
+    // write!(f, "  pub fn to_op(&self) -> Op {{\n")?;
+    // write!(f, "    match self {{\n")?;
+    // for (op_name, _) in &ops {
+    //     let pad_pascal = max_len_pascal - op_name.to_pascal_case().len();
+    //     write!(f, "      OpRaw::{op}({0:<pad$}v) => Op{{cond: Cond::from_u8(v.cond).unwrap()}},\n",
+    //            "",
+    //            op=op_name.to_pascal_case(),
+    //            pad=pad_pascal)?;
+    // }
+    // write!(f, "    }}\n")?;
+    // write!(f, "  }}\n")?;
+    // write!(f, "}}\n\n")?;
 
-    for (op_name, op) in &ops {
-        write!(f, "#[derive(Debug)]\n")?;
-        write!(f, "pub struct Op{} {{\n", op_name.to_pascal_case())?;
-        for param in &op.params {
-            write!(f, "  {}: bool,\n", param.name)?;
-        }
-        write!(f, "}}\n\n")?;
-    }
+    // for (op_name, op) in &ops {
+    //     write!(f, "#[derive(Debug)]\n")?;
+    //     write!(f, "pub struct Op{} {{\n", op_name.to_pascal_case())?;
+    //     for param in &op.params {
+    //         write!(f, "  {}: bool,\n", param.name)?;
+    //     }
+    //     write!(f, "}}\n\n")?;
+    // }
 
-    write!(f, "#[derive(Debug)]\n")?;
-    write!(f, "pub struct Op {{\n")?;
-    write!(f, "  cond: Cond,\n")?;
-    write!(f, "}}\n")?;
+    // write!(f, "#[derive(Debug)]\n")?;
+    // write!(f, "pub struct Op {{\n")?;
+    // write!(f, "  cond: Cond,\n")?;
+    // write!(f, "}}\n")?;
 
     Ok(())
 }
