@@ -21,7 +21,13 @@ fn main() -> Result<(), io::Error> {
         }
         let word = u32::from_le_bytes(*array_ref![data, i, 4]);
         let op = OpRaw::new(word);
-        println!("{:08x}: {:08x} {:?}", i, word.to_be(), op.to_op());
+        // println!("{:08x}: {:08x} {:?}", i, word.to_be(), op.to_op());
+        println!(
+            "{:08x}: {:08x} {}",
+            i,
+            word.to_be(),
+            op.to_op().map_or("???".to_string(), |o| o.asm(i as u32))
+        );
         i += 4;
     }
     Ok(())

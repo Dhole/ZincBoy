@@ -1,3 +1,5 @@
+use std::fmt;
+
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 
@@ -23,6 +25,33 @@ pub enum Cond {
     NV = 0b1111, // reserverd
 }
 
+impl fmt::Display for Cond {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Cond::EQ => "eq",
+                Cond::NE => "ne",
+                Cond::CS => "cs",
+                Cond::CC => "cc",
+                Cond::MI => "mi",
+                Cond::PL => "pl",
+                Cond::VS => "vs",
+                Cond::VC => "vc",
+                Cond::HI => "hi",
+                Cond::LS => "ls",
+                Cond::GE => "ge",
+                Cond::LT => "lt",
+                Cond::GT => "gt",
+                Cond::LE => "le",
+                Cond::AL => "",
+                Cond::NV => "nv",
+            }
+        )
+    }
+}
+
 #[derive(Debug, FromPrimitive, ToPrimitive)]
 pub enum AluOp {
     AND = 0b0000, // AND logical;        Rd = Rn AND Op2
@@ -41,6 +70,33 @@ pub enum AluOp {
     MOV = 0b1101, // move;               Rd = Op2
     BIC = 0b1110, // bit clear;          Rd = Rn AND NOT Op2
     MVN = 0b1111, // not;                Rd = NOT Op2
+}
+
+impl fmt::Display for AluOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                AluOp::AND => "and",
+                AluOp::EOR => "eor",
+                AluOp::SUB => "sub",
+                AluOp::RSB => "rsb",
+                AluOp::ADD => "add",
+                AluOp::ADC => "adc",
+                AluOp::SBC => "sbc",
+                AluOp::RSC => "rsc",
+                AluOp::TST => "tst",
+                AluOp::TEQ => "teq",
+                AluOp::CMP => "cmp",
+                AluOp::CMN => "cmn",
+                AluOp::ORR => "orr",
+                AluOp::MOV => "mov",
+                AluOp::BIC => "bic",
+                AluOp::MVN => "mvn",
+            }
+        )
+    }
 }
 
 #[derive(Debug, FromPrimitive, ToPrimitive)]
@@ -76,6 +132,7 @@ pub enum AluOp2 {
     Register(AluOp2Register),
 }
 
+// Data Processing
 #[derive(Debug)]
 pub struct Alu {
     op: AluOp,
@@ -85,8 +142,22 @@ pub struct Alu {
 }
 
 #[derive(Debug)]
+pub enum BranchAddr {
+    Register(u8),
+    Offset(u32, bool), // nn, H
+}
+
+#[derive(Debug)]
+pub struct Branch {
+    link: bool,
+    exchange: bool,
+    addr: BranchAddr,
+}
+
+#[derive(Debug)]
 pub enum OpBase {
     Alu(Alu),
+    Branch(Branch),
 }
 
 #[derive(Debug)]
@@ -136,6 +207,26 @@ impl OpRaw {
                     }),
                 }),
             },
+            OpRaw::BranchReg(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Branch(Branch {
+                    link: o.l,
+                    exchange: true,
+                    addr: BranchAddr::Register(o.rn),
+                }),
+            },
+            OpRaw::BranchOff(o) => {
+                let exchange = o.cond == 0b1111;
+                let link = if exchange { true } else { o.l };
+                Op {
+                    cond: Cond::from_u8(o.cond).unwrap(),
+                    base: OpBase::Branch(Branch {
+                        link: link,
+                        exchange: exchange,
+                        addr: BranchAddr::Offset(o.offset, o.l),
+                    }),
+                }
+            }
             // OpRaw::DataProcB(o) => Op {
             //     cond: Cond::from_u8(o.cond).unwrap(),
             // },
@@ -145,5 +236,31 @@ impl OpRaw {
             _ => return None,
         };
         Some(op)
+    }
+}
+
+impl Op {
+    pub fn asm(&self, pc: u32) -> String {
+        let (op, args) = match &self.base {
+            OpBase::Alu(alu) => (format!("{}", alu.op), format!("?")),
+            OpBase::Branch(branch) => (
+                format!(
+                    "b{}{}",
+                    if branch.link { "l" } else { "" },
+                    if branch.exchange { "x" } else { "" }
+                ),
+                format!(
+                    "{}",
+                    match branch.addr {
+                        BranchAddr::Register(rn) => format!("r{}", rn),
+                        BranchAddr::Offset(nn, h) => format!(
+                            "0x{:08x}",
+                            pc + 8 + nn * 4 + if branch.exchange { h as u32 * 2 } else { 0 }
+                        ),
+                    }
+                ),
+            ),
+        };
+        format!("{}{} {}", op, self.cond, args)
     }
 }
