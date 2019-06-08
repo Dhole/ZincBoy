@@ -5,7 +5,7 @@ use num_traits::FromPrimitive;
 
 include!(concat!(env!("OUT_DIR"), "/op_raw.rs"));
 
-#[derive(Debug, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Eq, PartialEq, FromPrimitive, ToPrimitive)]
 pub enum Cond {
     EQ = 0b0000, // Z=1 (equal)
     NE = 0b0001, // Z=0 (not equal)
@@ -155,9 +155,22 @@ pub struct Branch {
 }
 
 #[derive(Debug)]
+pub struct Breakpoint {
+    comment: (u16, u8),
+}
+
+#[derive(Debug)]
+pub struct Undefined {
+    xxx: (u32, u8),
+}
+
+#[derive(Debug)]
 pub enum OpBase {
     Alu(Alu),
     Branch(Branch),
+    Breakpoint(Breakpoint),
+    SoftInt,
+    Undefined(Undefined),
 }
 
 #[derive(Debug)]
@@ -227,6 +240,28 @@ impl OpRaw {
                     }),
                 }
             }
+            OpRaw::Bkpt(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Breakpoint(Breakpoint {
+                    comment: (o.imm_0, o.imm_1),
+                }),
+            },
+            OpRaw::Swi(o) => {
+                let cond = Cond::from_u8(o.cond).unwrap();
+                if cond != Cond::AL {
+                    return None;
+                }
+                Op {
+                    cond: cond,
+                    base: OpBase::SoftInt,
+                }
+            }
+            OpRaw::Undefined(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Undefined(Undefined {
+                    xxx: (o.xxx, o.yyy),
+                }),
+            },
             // OpRaw::DataProcB(o) => Op {
             //     cond: Cond::from_u8(o.cond).unwrap(),
             // },
@@ -260,6 +295,16 @@ impl Op {
                     }
                 ),
             ),
+            OpBase::Breakpoint(bkpt) => (
+                "bkpt".to_string(),
+                format!("{:03x}, {:01x}", bkpt.comment.0, bkpt.comment.1),
+            ),
+            OpBase::SoftInt => ("swi".to_string(), "".to_string()),
+            OpBase::Undefined(und) => (
+                "undefined".to_string(),
+                format!("{:05x}, {:01x}", und.xxx.0, und.xxx.1),
+            ),
+            // _ => ("TODO".to_string(), "TODO".to_string()),
         };
         format!("{}{} {}", op, self.cond, args)
     }
