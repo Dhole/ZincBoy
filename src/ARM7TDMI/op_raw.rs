@@ -155,9 +155,36 @@ pub struct Branch {
 }
 
 #[derive(Debug)]
-pub struct Breakpoint {
-    comment: (u16, u8),
+pub enum Half {
+    Top,
+    Bottom,
 }
+
+#[derive(Debug)]
+pub enum MultiplyReg {
+    Reg(u8),
+    RegHiLo(u8, u8),
+}
+
+// #[derive(Debug)]
+// pub enum MultiplyOp {
+//     Reg(u8),
+//     RegHalf(u8, Half),
+// }
+
+#[derive(Debug)]
+pub struct Multiply {
+    acc: Option<MultiplyReg>,
+    set_cond: bool,
+    signed: bool,
+    res: MultiplyReg,
+    ops_reg: (u8, u8),
+}
+
+// #[derive(Debug)]
+// pub struct Breakpoint {
+//     comment: (u16, u8),
+// }
 
 #[derive(Debug)]
 pub struct Undefined {
@@ -168,9 +195,10 @@ pub struct Undefined {
 pub enum OpBase {
     Alu(Alu),
     Branch(Branch),
-    Breakpoint(Breakpoint),
+    // Breakpoint(Breakpoint),
     SoftInt,
     Undefined(Undefined),
+    Multiply(Multiply),
 }
 
 #[derive(Debug)]
@@ -240,12 +268,12 @@ impl OpRaw {
                     }),
                 }
             }
-            OpRaw::Bkpt(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Breakpoint(Breakpoint {
-                    comment: (o.imm_0, o.imm_1),
-                }),
-            },
+            // OpRaw::Bkpt(o) => Op {
+            //     cond: Cond::from_u8(o.cond).unwrap(),
+            //     base: OpBase::Breakpoint(Breakpoint {
+            //         comment: (o.imm_0, o.imm_1),
+            //     }),
+            // },
             OpRaw::Swi(o) => {
                 let cond = Cond::from_u8(o.cond).unwrap();
                 if cond != Cond::AL {
@@ -262,12 +290,34 @@ impl OpRaw {
                     xxx: (o.xxx, o.yyy),
                 }),
             },
-            // OpRaw::DataProcB(o) => Op {
-            //     cond: Cond::from_u8(o.cond).unwrap(),
-            // },
-            // OpRaw::DataProcC(o) => Op {
-            //     cond: Cond::from_u8(o.cond).unwrap(),
-            // },
+            OpRaw::Multiply(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Multiply(Multiply {
+                    acc: if o.a {
+                        Some(MultiplyReg::Reg(o.rn))
+                    } else {
+                        None
+                    },
+                    signed: false,
+                    set_cond: o.s,
+                    res: MultiplyReg::Reg(o.rd),
+                    ops_reg: (o.rm, o.rs),
+                }),
+            },
+            OpRaw::MultiplyLong(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Multiply(Multiply {
+                    acc: if o.a {
+                        Some(MultiplyReg::RegHiLo(o.rd_hi, o.rd_lo))
+                    } else {
+                        None
+                    },
+                    signed: o.u,
+                    set_cond: o.s,
+                    res: MultiplyReg::RegHiLo(o.rd_hi, o.rd_lo),
+                    ops_reg: (o.rm, o.rs),
+                }),
+            },
             _ => return None,
         };
         Some(op)
@@ -295,14 +345,49 @@ impl Op {
                     }
                 ),
             ),
-            OpBase::Breakpoint(bkpt) => (
-                "bkpt".to_string(),
-                format!("{:03x}, {:01x}", bkpt.comment.0, bkpt.comment.1),
-            ),
+            // OpBase::Breakpoint(bkpt) => (
+            //     "bkpt".to_string(),
+            //     format!("{:03x}, {:01x}", bkpt.comment.0, bkpt.comment.1),
+            // ),
             OpBase::SoftInt => ("swi".to_string(), "".to_string()),
             OpBase::Undefined(und) => (
                 "undefined".to_string(),
                 format!("{:05x}, {:01x}", und.xxx.0, und.xxx.1),
+            ),
+            OpBase::Multiply(mul) => (
+                format!(
+                    "{0}{1}{2}{3}",
+                    if let MultiplyReg::Reg(_) = mul.res {
+                        ""
+                    } else {
+                        if mul.signed {
+                            "s"
+                        } else {
+                            "u"
+                        }
+                    },
+                    if let None = mul.acc { "mul" } else { "mla" },
+                    if mul.set_cond { "s" } else { "" },
+                    if let MultiplyReg::RegHiLo(_, _) = mul.res {
+                        "l"
+                    } else {
+                        ""
+                    }
+                ),
+                format!(
+                    "{0}, r{1}, r{2}{3}",
+                    match mul.res {
+                        MultiplyReg::Reg(rd) => format!("r{}", rd),
+                        MultiplyReg::RegHiLo(rd_hi, rd_lo) => format!("r{}, r{}", rd_lo, rd_hi),
+                    },
+                    mul.ops_reg.0,
+                    mul.ops_reg.1,
+                    if let Some(MultiplyReg::Reg(rs)) = mul.acc {
+                        format!(", r{}", rs)
+                    } else {
+                        "".to_string()
+                    },
+                ),
             ),
             // _ => ("TODO".to_string(), "TODO".to_string()),
         };
