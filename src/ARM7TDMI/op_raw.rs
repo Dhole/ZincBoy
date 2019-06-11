@@ -1,4 +1,5 @@
 use std::fmt;
+use std::num::Wrapping;
 
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
@@ -144,7 +145,7 @@ pub struct Alu {
 #[derive(Debug)]
 pub enum BranchAddr {
     Register(u8),
-    Offset(u32, bool), // nn, H
+    Offset(i32, bool), // nn, H
 }
 
 #[derive(Debug)]
@@ -152,6 +153,25 @@ pub struct Branch {
     link: bool,
     exchange: bool,
     addr: BranchAddr,
+}
+impl Branch {
+    pub fn offset(&self, pc: u32) -> u32 {
+        match self.addr {
+            BranchAddr::Register(_) => 0,
+            BranchAddr::Offset(nn, h) => {
+                let mut offset = Wrapping(pc) + Wrapping(8);
+                if self.exchange && h {
+                    offset += Wrapping(2);
+                }
+                if nn < 0 {
+                    offset -= Wrapping(-nn as u32 * 4);
+                } else {
+                    offset += Wrapping(nn as u32 * 4);
+                }
+                offset.0
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -259,12 +279,17 @@ impl OpRaw {
             OpRaw::BranchOff(o) => {
                 let exchange = o.cond == 0b1111;
                 let link = if exchange { true } else { o.l };
+                let offset = if o.offset < 0b100000000000000000000000 {
+                    o.offset as i32
+                } else {
+                    -((0b1000000000000000000000000 - o.offset) as i32)
+                };
                 Op {
                     cond: Cond::from_u8(o.cond).unwrap(),
                     base: OpBase::Branch(Branch {
                         link: link,
                         exchange: exchange,
-                        addr: BranchAddr::Offset(o.offset, o.l),
+                        addr: BranchAddr::Offset(offset, o.l),
                     }),
                 }
             }
@@ -338,10 +363,7 @@ impl Op {
                     "{}",
                     match branch.addr {
                         BranchAddr::Register(rn) => format!("r{}", rn),
-                        BranchAddr::Offset(nn, h) => format!(
-                            "0x{:08x}",
-                            pc + 8 + nn * 4 + if branch.exchange { h as u32 * 2 } else { 0 }
-                        ),
+                        BranchAddr::Offset(_, _) => format!("0x{:08x}", branch.offset(pc),),
                     }
                 ),
             ),

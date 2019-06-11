@@ -23,10 +23,14 @@ fn main() -> Result<(), io::Error> {
         let op = OpRaw::new(word);
         // println!("{:08x}: {:08x} {:?}", i, word.to_be(), op.to_op());
         println!(
-            "{:08x}: {:08x} {}",
+            "{:08x}: {:08x} {} | {}",
             i,
             word.to_be(),
-            op.to_op().map_or("???".to_string(), |o| o.asm(i as u32))
+            match &op {
+                None => "undefined (0)".to_string(),
+                Some(op) => op.to_op().map_or("???".to_string(), |o| o.asm(i as u32)),
+            },
+            op.map_or("???".to_string(), |op| format!("{:?}", op.to_op())),
         );
         i += 4;
     }
