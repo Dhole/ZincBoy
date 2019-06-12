@@ -212,6 +212,44 @@ pub struct Undefined {
 }
 
 #[derive(Debug)]
+pub struct MsrSrcImmediate {
+    shift: u8,
+    immediate: u8,
+}
+
+#[derive(Debug)]
+pub enum MsrSrc {
+    Immediate(MsrSrcImmediate),
+    Register(u8),
+}
+
+#[derive(Debug)]
+pub struct Msr {
+    f: bool,
+    s: bool,
+    x: bool,
+    c: bool,
+    src: MsrSrc,
+}
+
+#[derive(Debug)]
+pub struct Mrs {
+    rd: u8,
+}
+
+#[derive(Debug)]
+pub enum PsrOp {
+    Mrs(Mrs),
+    Msr(Msr),
+}
+
+#[derive(Debug)]
+pub struct Psr {
+    psr: bool,
+    op: PsrOp,
+}
+
+#[derive(Debug)]
 pub enum OpBase {
     Alu(Alu),
     Branch(Branch),
@@ -219,6 +257,7 @@ pub enum OpBase {
     SoftInt,
     Undefined(Undefined),
     Multiply(Multiply),
+    Psr(Psr),
 }
 
 #[derive(Debug)]
@@ -343,6 +382,39 @@ impl OpRaw {
                     ops_reg: (o.rm, o.rs),
                 }),
             },
+            OpRaw::PsrImm(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Psr(Psr {
+                    psr: o.p,
+                    op: PsrOp::Msr(Msr {
+                        f: o.field & 0b1000 != 0,
+                        s: o.field & 0b0100 != 0,
+                        x: o.field & 0b0010 != 0,
+                        c: o.field & 0b0001 != 0,
+                        src: MsrSrc::Immediate(MsrSrcImmediate {
+                            shift: o.shift,
+                            immediate: o.immediate,
+                        }),
+                    }),
+                }),
+            },
+            OpRaw::PsrReg(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Psr(Psr {
+                    psr: o.p,
+                    op: if o.l {
+                        PsrOp::Msr(Msr {
+                            f: o.field & 0b1000 != 0,
+                            s: o.field & 0b0100 != 0,
+                            x: o.field & 0b0010 != 0,
+                            c: o.field & 0b0001 != 0,
+                            src: MsrSrc::Register(o.rm),
+                        })
+                    } else {
+                        PsrOp::Mrs(Mrs { rd: o.rd })
+                    },
+                }),
+            },
             _ => return None,
         };
         Some(op)
@@ -411,7 +483,7 @@ impl Op {
                     },
                 ),
             ),
-            // _ => ("TODO".to_string(), "TODO".to_string()),
+            _ => ("TODO".to_string(), "TODO".to_string()),
         };
         format!("{}{} {}", op, self.cond, args)
     }
