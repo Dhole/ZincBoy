@@ -245,7 +245,7 @@ pub enum PsrOp {
 
 #[derive(Debug)]
 pub struct Psr {
-    psr: bool,
+    spsr: bool,
     op: PsrOp,
 }
 
@@ -385,7 +385,7 @@ impl OpRaw {
             OpRaw::PsrImm(o) => Op {
                 cond: Cond::from_u8(o.cond).unwrap(),
                 base: OpBase::Psr(Psr {
-                    psr: o.p,
+                    spsr: o.p,
                     op: PsrOp::Msr(Msr {
                         f: o.field & 0b1000 != 0,
                         s: o.field & 0b0100 != 0,
@@ -401,7 +401,7 @@ impl OpRaw {
             OpRaw::PsrReg(o) => Op {
                 cond: Cond::from_u8(o.cond).unwrap(),
                 base: OpBase::Psr(Psr {
-                    psr: o.p,
+                    spsr: o.p,
                     op: if o.l {
                         PsrOp::Msr(Msr {
                             f: o.field & 0b1000 != 0,
@@ -461,12 +461,12 @@ impl Op {
                         }
                     },
                     if let None = mul.acc { "mul" } else { "mla" },
-                    if mul.set_cond { "s" } else { "" },
                     if let MultiplyReg::RegHiLo(_, _) = mul.res {
                         "l"
                     } else {
                         ""
-                    }
+                    },
+                    if mul.set_cond { "s" } else { "" },
                 ),
                 format!(
                     "{0}, r{1}, r{2}{3}",
@@ -483,8 +483,83 @@ impl Op {
                     },
                 ),
             ),
-            _ => ("TODO".to_string(), "TODO".to_string()),
+            OpBase::Psr(psr) => {
+                let psr_set = if psr.spsr { "spsr" } else { "cpsr" };
+                (match &psr.op {
+                    PsrOp::Mrs(mrs) => ("mrs".to_string(), format!("r{}, {}", mrs.rd, psr_set)),
+                    PsrOp::Msr(msr) => (
+                        "msr".to_string(),
+                        format!(
+                            "{}_{}{}{}{}, {}",
+                            psr_set,
+                            if msr.f { "r" } else { "" },
+                            if msr.s { "s" } else { "" },
+                            if msr.x { "x" } else { "" },
+                            if msr.c { "c" } else { "" },
+                            match &msr.src {
+                                MsrSrc::Immediate(imm) => {
+                                    format!("{}", imm.immediate << imm.shift * 2)
+                                }
+                                MsrSrc::Register(rd) => format!("r{}", rd),
+                            }
+                        ),
+                    ),
+                })
+            }
+            // _ => ("TODO".to_string(), "TODO".to_string()),
         };
         format!("{}{} {}", op, self.cond, args)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn op_asm() {
+        let pc = 0x12345678;
+        #[rustfmt::skip]
+        let words_asms = vec![
+            (0b1110_0001001011111111111100_0_1_0011,     "bx r3"), // BX, BLX
+            (0b1110_0001001011111111111100_1_1_0011,     "blx r3"), // BX, BLX
+            (0b1110_000000_0_0_0011_0100_0101_1001_0110, "mul r3, r6, r5"), // Multiply
+            (0b1110_000000_0_1_0011_0100_0101_1001_0110, "muls r3, r6, r5"), // Multiply
+            (0b1110_000000_1_0_0011_0100_0101_1001_0110, "mla r3, r6, r5, r4"),  // Multiply
+            (0b1110_000000_1_1_0011_0100_0101_1001_0110, "mlas r3, r6, r5, r4"),  // Multiply
+            (0b1110_00001_0_0_0_0011_0100_0101_1001_0110, "umull r4, r3, r6, r5"),  // MulLong
+            (0b1110_00001_0_0_1_0011_0100_0101_1001_0110, "umulls r4, r3, r6, r5"),  // MulLong
+            (0b1110_00001_0_1_0_0011_0100_0101_1001_0110, "umlal r4, r3, r6, r5"),  // MulLong
+            (0b1110_00001_0_1_1_0011_0100_0101_1001_0110, "umlals r4, r3, r6, r5"),  // MulLong
+            (0b1110_00001_1_0_0_0011_0100_0101_1001_0110, "smull r4, r3, r6, r5"),  // MulLong
+            (0b1110_00001_1_0_1_0011_0100_0101_1001_0110, "smulls r4, r3, r6, r5"),  // MulLong
+            (0b1110_00001_1_1_0_0011_0100_0101_1001_0110, "smlal r4, r3, r6, r5"),  // MulLong
+            (0b1110_00001_1_1_1_0011_0100_0101_1001_0110, "smlals r4, r3, r6, r5"),  // MulLong
+            (0b1110_00010_0_0_0__0011_0011_00000000_0100, "mrs r3, cpsr"),  // PSR Reg
+            (0b1110_00010_0_1_0__1111_0011_00000000_0000, ""),  // PSR Reg
+            (0b1110_00010_1_0_0__1110_0011_00000000_0100, "mrs r3, spsr"),  // PSR Reg
+            (0b1110_00010_1_1_0__1111_0011_00000000_0000, ""),  // PSR Reg
+        ];
+        println!("# Radare disasm");
+        for (word, _) in &words_asms {
+            println!(
+                "rasm2 -a arm -b 32 -o 0x{:08x} -D {:08x}",
+                pc,
+                (*word as u32).to_be()
+            );
+        }
+        for (word, asm_good) in &words_asms {
+            let op = OpRaw::new(*word).unwrap();
+            let asm = op.to_op().map_or("???".to_string(), |o| o.asm(pc));
+            println!(
+                "{:08x}: {:08x} {} | {:?} - {:?}",
+                pc,
+                (*word as u32).to_be(),
+                asm,
+                op,
+                op.to_op()
+            );
+            assert_eq!(*asm_good, asm);
+        }
     }
 }

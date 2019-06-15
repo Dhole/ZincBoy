@@ -47,6 +47,7 @@ struct Op {
     value: String,
     mask: String,
     params: Vec<Param>,
+    priority: u8, // use priorities so that some op are matched before others in ambiguos cases
 }
 
 fn bitarray2string(arr: [u32; 32]) -> String {
@@ -65,37 +66,37 @@ fn main() -> Result<(), io::Error> {
     let mut f = File::create(&dest_path).unwrap();
 
     let ops_desc = hashmap! {
-    //                  |..3 ..................2 ..................1 ..................0|
-    //                  |1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0|
-    "branch_reg"    => "|_Cond__|0_0_0_1_0_0_1_0_1_1_1_1_1_1_1_1_1_1_1_1|0_0|L|1|__Rn___|",  // BX,BLX
-    // "bkpt"       => "|1_1_1_0|0_0_0_1_0_0_1_0|________imm0___________|0_1_1_1|__imm1_|",  // ARM9:BKPT
-    // "clz"           => "|_Cond__|0_0_0_1_0_1_1_0_1_1_1_1|__Rd___|1_1_1_1|0_0_0_1|__Rm___|",  // ARM9:CLZ
-    "multiply"      => "|_Cond__|0_0_0_0_0_0|A|S|__Rd___|__Rn___|__Rs___|1_0_0_1|__Rm___|",  // Multiply
-    "multiply_long" => "|_Cond__|0_0_0_0_1|U|A|S|_RdHi__|_RdLo__|__Rs___|1_0_0_1|__Rm___|",  // MulLong
-    // "multiply_half" => "|_Cond__|0_0_0_1_0|Op_|0|Rd_RdHi|Rn_RdLo|__Rs___|1|y|x|0|__Rm___|",  // MulHalfARM9
-    "psr_reg"       => "|_Cond__|0_0_0_1_0|P|L|0|_Field_|__Rd___|0_0_0_0|0_0_0_0|__Rm___|",  // PSR Reg
-    // "qalu"          => "|_Cond__|0_0_0_1_0|Op_|0|__Rn___|__Rd___|0_0_0_0|0_1_0_1|__Rm___|",  // ARM9:QALU
-    "trans_swp_12"  => "|_Cond__|0_0_0_1_0|B|0_0|__Rn___|__Rd___|0_0_0_0|1_0_0_1|__Rm___|",  // TransSwp12
-    "data_proc_a"   => "|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|",  // DataProc
-    "data_proc_b"   => "|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Rs___|0|Typ|1|__Rm___|",  // DataProc
-    "trans_reg_10"  => "|_Cond__|0_0_0|P|U|0|W|L|__Rn___|__Rd___|0_0_0_0|1|S|H|1|__Rm___|",  // TransReg10
-    "trans_imm_10"  => "|_Cond__|0_0_0|P|U|1|W|L|__Rn___|__Rd___|OffsetH|1|S|H|1|OffsetL|",  // TransImm10
-    "psr_imm"       => "|_Cond__|0_0_1_1_0|P|1|0|_Field_|__Rd___|_Shift_|___Immediate___|",  // PSR Imm
-    "data_proc_c"   => "|_Cond__|0_0_1|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|",  // DataProc
-    "trans_imm_9"   => "|_Cond__|0_1_0|P|U|B|W|L|__Rn___|__Rd___|_________Offset________|",  // TransImm9
-    "trans_reg_9"   => "|_Cond__|0_1_1|P|U|B|W|L|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|",  // TransReg9
-    "undefined"     => "|_Cond__|0_1_1|________________xxx____________________|1|__yyy__|",  // Undefined
-    "block_trans"   => "|_Cond__|1_0_0|P|U|S|W|L|__Rn___|__________Register_List________|",  // BlockTrans
-    "branch_off"    => "|_Cond__|1_0_1|L|___________________Offset______________________|",  // B,BL,BLX
-    // "co_rr"         => "|_Cond__|1_1_0_0_0_1_0|L|__Rn___|__Rd___|__CPN__|_CPopc_|__CRm__|",  // CoRR ARM9
-    "co_data_trans" => "|_Cond__|1_1_0|P|U|N|W|L|__Rn___|__CRd__|__CPN__|____Offset_____|",  // CoDataTrans
-    "co_data_op"    => "|_Cond__|1_1_1_0|_CPopc_|__CRn__|__CRd__|__CPN__|_CP__|0|__CRm__|",  // CoDataOp
-    "co_reg_trans"  => "|_Cond__|1_1_1_0|CPopc|L|__CRn__|__Rd___|__CPN__|_CP__|1|__CRm__|",  // CoRegTrans
-    "swi"           => "|_Cond__|1_1_1_1|_____________Ignored_by_Processor______________|",  // SWI
+    //                   |..3 ..................2 ..................1 ..................0|
+    //                   |1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0|
+    "branch_reg"    => ("|_Cond__|0_0_0_1_0_0_1_0_1_1_1_1_1_1_1_1_1_1_1_1|0_0|L|1|__Rn___|", 0),  // BX,BLX
+    // "bkpt"       => ("|1_1_1_0|0_0_0_1_0_0_1_0|________imm0___________|0_1_1_1|__imm1_|", 1),  // ARM9:BKPT
+    // "clz"        => ("|_Cond__|0_0_0_1_0_1_1_0_1_1_1_1|__Rd___|1_1_1_1|0_0_0_1|__Rm___|", 1),  // ARM9:CLZ
+    "multiply"      => ("|_Cond__|0_0_0_0_0_0|A|S|__Rd___|__Rn___|__Rs___|1_0_0_1|__Rm___|", 1),  // Multiply
+    "multiply_long" => ("|_Cond__|0_0_0_0_1|U|A|S|_RdHi__|_RdLo__|__Rs___|1_0_0_1|__Rm___|", 0),  // MulLong
+    "psr_reg"       => ("|_Cond__|0_0_0_1_0|P|L|0|_Field_|__Rd___|0_0_0_0|0_0_0_0|__Rm___|", 0),  // PSR Reg
+    // "qalu"       => ("|_Cond__|0_0_0_1_0|Op_|0|__Rn___|__Rd___|0_0_0_0|0_1_0_1|__Rm___|", 1),  // ARM9:QALU
+    "trans_swp_12"  => ("|_Cond__|0_0_0_1_0|B|0_0|__Rn___|__Rd___|0_0_0_0|1_0_0_1|__Rm___|", 1),  // TransSwp12
+    "data_proc_a"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // DataProc
+    "data_proc_b"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Rs___|0|Typ|1|__Rm___|", 1),  // DataProc
+    "trans_reg_10"  => ("|_Cond__|0_0_0|P|U|0|W|L|__Rn___|__Rd___|0_0_0_0|1|S|H|1|__Rm___|", 1),  // TransReg10
+    "trans_imm_10"  => ("|_Cond__|0_0_0|P|U|1|W|L|__Rn___|__Rd___|OffsetH|1|S|H|1|OffsetL|", 1),  // TransImm10
+    // "multiply_half" => "|_Cond__|0_0_0_1_0|Op_|0|Rd_RdHi|Rn_RdLo|__Rs___|1|y|x|0|__Rm___|", 1),  // MulHalfARM9
+    "psr_imm"       => ("|_Cond__|0_0_1_1_0|P|1|0|_Field_|__Rd___|_Shift_|___Immediate___|", 1),  // PSR Imm
+    "data_proc_c"   => ("|_Cond__|0_0_1|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|", 1),  // DataProc
+    "trans_imm_9"   => ("|_Cond__|0_1_0|P|U|B|W|L|__Rn___|__Rd___|_________Offset________|", 1),  // TransImm9
+    "trans_reg_9"   => ("|_Cond__|0_1_1|P|U|B|W|L|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // TransReg9
+    "undefined"     => ("|_Cond__|0_1_1|________________xxx____________________|1|__yyy__|", 1),  // Undefined
+    "block_trans"   => ("|_Cond__|1_0_0|P|U|S|W|L|__Rn___|__________Register_List________|", 1),  // BlockTrans
+    "branch_off"    => ("|_Cond__|1_0_1|L|___________________Offset______________________|", 1),  // B,BL,BLX
+    // "co_rr"      => ("|_Cond__|1_1_0_0_0_1_0|L|__Rn___|__Rd___|__CPN__|_CPopc_|__CRm__|", 1),  // CoRR ARM9
+    "co_data_trans" => ("|_Cond__|1_1_0|P|U|N|W|L|__Rn___|__CRd__|__CPN__|____Offset_____|", 1),  // CoDataTrans
+    "co_data_op"    => ("|_Cond__|1_1_1_0|_CPopc_|__CRn__|__CRd__|__CPN__|_CP__|0|__CRm__|", 1),  // CoDataOp
+    "co_reg_trans"  => ("|_Cond__|1_1_1_0|CPopc|L|__CRn__|__Rd___|__CPN__|_CP__|1|__CRm__|", 1),  // CoRegTrans
+    "swi"           => ("|_Cond__|1_1_1_1|_____________Ignored_by_Processor______________|", 1),  // SWI
     };
 
     let mut ops = HashMap::new();
-    for (op, desc) in ops_desc.iter() {
+    for (op, (desc, priority)) in ops_desc.iter() {
         let elems: Vec<&str> = desc.split_at(1).1.split("|").collect();
         let mut params: Vec<Param> = Vec::new();
         let mut val = [0; 32];
@@ -130,6 +131,7 @@ fn main() -> Result<(), io::Error> {
                 value: bitarray2string(val),
                 mask: bitarray2string(mask),
                 params: params,
+                priority: *priority as u8,
             },
         );
     }
@@ -190,18 +192,27 @@ fn main() -> Result<(), io::Error> {
     write!(f, "impl OpRaw {{\n")?;
     write!(f, "  pub fn new(v: u32) -> Option<Self> {{\n")?;
     write!(f, "    match v {{\n")?;
-    for (op_name, _) in &ops {
-        let pad_snake = max_len_snake - op_name.len();
-        let pad_pascal = max_len_pascal - op_name.to_pascal_case().len();
-        write!(f, "      _ if (v & OP_{op_up}_MASK{0:<pad0$}) == OP_{op_up}_VAL{0:<pad0$} => \
-               Some(OpRaw::{op}({0:>pad1$}{0:>pad1$}OpRaw{op}::new(v))),\n",
-               "",
-               op_up= op_name.to_uppercase(),
-               op=op_name.to_pascal_case(),
-               pad0=pad_snake,
-               pad1=pad_pascal)?;
+    for priority in 0..2 {
+        if priority != 0 {
+            write!(f, "      _ => match v {{\n")?;
+        }
+        for (op_name, op) in &ops {
+            if op.priority != priority { continue }
+            let pad_snake = max_len_snake - op_name.len();
+            let pad_pascal = max_len_pascal - op_name.to_pascal_case().len();
+            write!(f, "      _ if (v & OP_{op_up}_MASK{0:<pad0$}) == OP_{op_up}_VAL{0:<pad0$} => \
+                   Some(OpRaw::{op}({0:>pad1$}{0:>pad1$}OpRaw{op}::new(v))),\n",
+                   "",
+                   op_up= op_name.to_uppercase(),
+                   op=op_name.to_pascal_case(),
+                   pad0=pad_snake,
+                   pad1=pad_pascal)?;
+        }
+        if priority != 0 {
+            write!(f, "      _ => None,\n")?;
+            write!(f, "      }},\n")?;
+        }
     }
-    write!(f, "      _ => None,\n")?;
     write!(f, "    }}\n")?;
     write!(f, "  }}\n")?;
     write!(f, "}}\n\n")?;
