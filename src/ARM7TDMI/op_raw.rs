@@ -108,6 +108,21 @@ pub enum ShiftType {
     ROR = 3,
 }
 
+impl fmt::Display for ShiftType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ShiftType::LSL => "lsl",
+                ShiftType::LSR => "lsr",
+                ShiftType::ASR => "asr",
+                ShiftType::ROR => "ror",
+            }
+        )
+    }
+}
+
 #[derive(Debug)]
 pub enum AluOp2RegisterShift {
     Immediate(u8),
@@ -137,6 +152,7 @@ pub enum AluOp2 {
 #[derive(Debug)]
 pub struct Alu {
     op: AluOp,
+    s: bool,
     rn: u8,
     rd: u8,
     op2: AluOp2,
@@ -273,6 +289,7 @@ impl OpRaw {
                 cond: Cond::from_u8(o.cond).unwrap(),
                 base: OpBase::Alu(Alu {
                     op: AluOp::from_u8(o.op).unwrap(),
+                    s: o.s,
                     rn: o.rn,
                     rd: o.rd,
                     op2: AluOp2::Register(AluOp2Register {
@@ -286,6 +303,7 @@ impl OpRaw {
                 cond: Cond::from_u8(o.cond).unwrap(),
                 base: OpBase::Alu(Alu {
                     op: AluOp::from_u8(o.op).unwrap(),
+                    s: o.s,
                     rn: o.rn,
                     rd: o.rd,
                     op2: AluOp2::Register(AluOp2Register {
@@ -299,6 +317,7 @@ impl OpRaw {
                 cond: Cond::from_u8(o.cond).unwrap(),
                 base: OpBase::Alu(Alu {
                     op: AluOp::from_u8(o.op).unwrap(),
+                    s: o.s,
                     rn: o.rn,
                     rd: o.rd,
                     op2: AluOp2::Immediate(AluOp2Immediate {
@@ -424,7 +443,32 @@ impl OpRaw {
 impl Op {
     pub fn asm(&self, pc: u32) -> String {
         let (op, args) = match &self.base {
-            OpBase::Alu(alu) => (format!("{}", alu.op), format!("?")),
+            OpBase::Alu(alu) => {
+                let op2 = match &alu.op2 {
+                    AluOp2::Immediate(imm) => format!("0x{}", imm.immediate << imm.shift * 2), // TODO: ROR
+                    AluOp2::Register(reg) => format!("r{}{}", reg.rm, match reg.shift {
+                        AluOp2RegisterShift::Immediate(imm) => match reg.st {
+                            ShiftType::LSL if imm == 0 => format!(""),
+                            ShiftType::LSR if imm == 0 => format!(", lsr 32"),
+                            ShiftType::ASR if imm == 0 => format!(", asr 32"),
+                            ShiftType::ROR if imm == 0 => format!(", rrx"),
+                            _ => format!(", {} {}", reg.st, imm),
+                        },
+                        AluOp2RegisterShift::Register(rs) => format!(", {} r{}", reg.st, rs),
+                    }),
+                };
+                (format!("{}{}", alu.op, match alu.op {
+                    AluOp::TST | AluOp::TEQ | AluOp::CMP | AluOp::CMN => { if alu.rd == 0b1111 { "p" } else { "" } },
+                    _ => if alu.s { "s" } else { "" }
+                }),
+                    match alu.op {
+                        AluOp::AND | AluOp::EOR | AluOp::SUB | AluOp::RSB | AluOp::ADD | AluOp::ADC |
+                                     AluOp::SBC | AluOp::RSC | AluOp::ORR | AluOp::BIC =>
+                            format!("r{}, r{}, {}", alu.rd, alu.rn, op2),
+                        AluOp::TST | AluOp::TEQ | AluOp::CMP | AluOp::CMN => format!("r{}, {}", alu.rn, op2),
+                        AluOp::MOV | AluOp::MVN => format!("r{}, {}", alu.rd, op2),
+                    })
+            },
             OpBase::Branch(branch) => (
                 format!(
                     "b{}{}",
@@ -521,15 +565,15 @@ mod tests {
         let pc = 0x12345678;
         #[rustfmt::skip]
         let words_asms = vec![
-            (0b1110_0001001011111111111100_0_1_0011,     "bx r3"), // BX, BLX
-            (0b1110_0001001011111111111100_1_1_0011,     "blx r3"), // BX, BLX
-            (0b1110_101_0_000000000100011000101000,     "b 0x12356f20"), // B,BL,BLX
-            (0b1110_101_1_100000000001000000101100,     "bl 0x10349730"), // B,BL,BLX
-            (0b1110_1111_101010101010101010101010,     "swi 0x00aaaaaa"), // SWI
-            (0b1110_000000_0_0_0011_0100_0101_1001_0110, "mul r3, r6, r5"), // Multiply
-            (0b1110_000000_0_1_0011_0100_0101_1001_0110, "muls r3, r6, r5"), // Multiply
-            (0b1110_000000_1_0_0011_0100_0101_1001_0110, "mla r3, r6, r5, r4"),  // Multiply
-            (0b1110_000000_1_1_0011_0100_0101_1001_0110, "mlas r3, r6, r5, r4"),  // Multiply
+            (0b1110_0001001011111111111100_0_1_0011,      "bx r3"), // BX, BLX
+            (0b1110_0001001011111111111100_1_1_0011,      "blx r3"), // BX, BLX
+            (0b1110_101_0_000000000100011000101000,       "b 0x12356f20"), // B,BL,BLX
+            (0b1110_101_1_100000000001000000101100,       "bl 0x10349730"), // B,BL,BLX
+            (0b1110_1111_101010101010101010101010,        "swi 0x00aaaaaa"), // SWI
+            (0b1110_000000_0_0_0011_0100_0101_1001_0110,  "mul r3, r6, r5"), // Multiply
+            (0b1110_000000_0_1_0011_0100_0101_1001_0110,  "muls r3, r6, r5"), // Multiply
+            (0b1110_000000_1_0_0011_0100_0101_1001_0110,  "mla r3, r6, r5, r4"),  // Multiply
+            (0b1110_000000_1_1_0011_0100_0101_1001_0110,  "mlas r3, r6, r5, r4"),  // Multiply
             (0b1110_00001_0_0_0_0011_0100_0101_1001_0110, "umull r4, r3, r6, r5"),  // MulLong
             (0b1110_00001_0_0_1_0011_0100_0101_1001_0110, "umulls r4, r3, r6, r5"),  // MulLong
             (0b1110_00001_0_1_0_0011_0100_0101_1001_0110, "umlal r4, r3, r6, r5"),  // MulLong
@@ -538,11 +582,26 @@ mod tests {
             (0b1110_00001_1_0_1_0011_0100_0101_1001_0110, "smulls r4, r3, r6, r5"),  // MulLong
             (0b1110_00001_1_1_0_0011_0100_0101_1001_0110, "smlal r4, r3, r6, r5"),  // MulLong
             (0b1110_00001_1_1_1_0011_0100_0101_1001_0110, "smlals r4, r3, r6, r5"),  // MulLong
-            (0b1110_00010_0_0_0_1111_0011_00000000_0100, "mrs r3, cpsr"),  // PSR Reg
-            (0b1110_00010_1_0_0_1111_0011_00000000_0100, "mrs r3, spsr"),  // PSR Reg
-            (0b1110_00010_0_1_0_1010_1111_00000000_0011, "msr cpsr_fx, r3"),  // PSR Reg
-            (0b1110_00010_1_1_0_0101_1111_00000000_0100, "msr spsr_sc, r4"),  // PSR Reg
-            // (0b1110_000|___Op__|S|__Rn___|__Rd___|__Shift__|Typ_0___Rm___|,     ""), // DataProc A
+            (0b1110_00010_0_0_0_1111_0011_00000000_0100,  "mrs r3, cpsr"),  // PSR Reg
+            (0b1110_00010_1_0_0_1111_0011_00000000_0100,  "mrs r3, spsr"),  // PSR Reg
+            (0b1110_00010_0_1_0_1010_1111_00000000_0011,  "msr cpsr_fx, r3"),  // PSR Reg
+            (0b1110_00010_1_1_0_0101_1111_00000000_0100,  "msr spsr_sc, r4"),  // PSR Reg
+            (0b1110_000_0000_0_0011_0100_00000_00_0_0101,  "and r4, r3, r5"), // DataProc A
+            (0b1110_000_0001_1_0011_0100_00000_01_0_0101,  "eors r4, r3, r5, lsr 32"), // DataProc A
+            (0b1110_000_0010_0_0011_0100_00000_10_0_0101,  "sub r4, r3, r5, asr 32"), // DataProc A
+            (0b1110_000_0011_1_0011_0100_00000_11_0_0101,  "rsbs r4, r3, r5, rrx"), // DataProc A
+            (0b1110_000_0100_0_0011_0100_00001_00_0_0101,  "add r4, r3, r5, lsl 1"), // DataProc A
+            (0b1110_000_0101_1_0011_0100_00010_01_0_0101,  "adcs r4, r3, r5, lsr 2"), // DataProc A
+            (0b1110_000_0110_0_0011_0100_00011_10_0_0101,  "sbc r4, r3, r5, asr 3"), // DataProc A
+            (0b1110_000_0111_0_0011_0100_10100_11_0_0101,  "rsc r4, r3, r5, ror 20"), // DataProc A
+            (0b1110_000_1000_1_0011_0000_00101_00_0_0101,  "tst r3, r5, lsl 5"), // DataProc A
+            (0b1110_000_1001_1_0011_1111_00110_01_0_0101,  "teqp r3, r5, lsr 6"), // DataProc A
+            (0b1110_000_1010_1_0011_0000_10111_10_0_0101,  "cmp r3, r5, asr 23"), // DataProc A
+            (0b1110_000_1011_1_0011_1111_01000_11_0_0101,  "cmnp r3, r5, ror 8"), // DataProc A
+            (0b1110_000_1100_0_0011_0100_01001_00_0_0101,  "orr r4, r3, r5, lsl 9"), // DataProc A
+            //(0b1110_000_1101_1_0000_0100_11010_01_0_0101,  "lsrs r4, r5, 0x1a"), // DataProc A
+            (0b1110_000_1110_0_0011_0100_01101_10_0_0101,  "bic r4, r3, r5, asr 13"), // DataProc A
+            (0b1110_000_1111_1_0000_0100_11101_11_0_0101,  "mvns r4, r5, ror 29"), // DataProc A
             // (0b1110_000|___Op__|S|__Rn___|__Rd___|__Rs____0_Typ_1___Rm___|,     ""), // DataProc B
             // (0b1110_001|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|,     ""), // DataProc C
         ];
