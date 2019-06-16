@@ -254,7 +254,7 @@ pub enum OpBase {
     Alu(Alu),
     Branch(Branch),
     // Breakpoint(Breakpoint),
-    SoftInt,
+    SoftInt(u32),
     Undefined(Undefined),
     Multiply(Multiply),
     Psr(Psr),
@@ -345,7 +345,7 @@ impl OpRaw {
                 }
                 Op {
                     cond: cond,
-                    base: OpBase::SoftInt,
+                    base: OpBase::SoftInt(o.ignoredby_processor),
                 }
             }
             OpRaw::Undefined(o) => Op {
@@ -443,7 +443,7 @@ impl Op {
             //     "bkpt".to_string(),
             //     format!("{:03x}, {:01x}", bkpt.comment.0, bkpt.comment.1),
             // ),
-            OpBase::SoftInt => ("swi".to_string(), "".to_string()),
+            OpBase::SoftInt(imm) => ("swi".to_string(), format!("0x{:08x}", imm)),
             OpBase::Undefined(und) => (
                 "undefined".to_string(),
                 format!("{:05x}, {:01x}", und.xxx.0, und.xxx.1),
@@ -492,7 +492,7 @@ impl Op {
                         format!(
                             "{}_{}{}{}{}, {}",
                             psr_set,
-                            if msr.f { "r" } else { "" },
+                            if msr.f { "f" } else { "" },
                             if msr.s { "s" } else { "" },
                             if msr.x { "x" } else { "" },
                             if msr.c { "c" } else { "" },
@@ -523,6 +523,9 @@ mod tests {
         let words_asms = vec![
             (0b1110_0001001011111111111100_0_1_0011,     "bx r3"), // BX, BLX
             (0b1110_0001001011111111111100_1_1_0011,     "blx r3"), // BX, BLX
+            (0b1110_101_0_000000000100011000101000,     "b 0x12356f20"), // B,BL,BLX
+            (0b1110_101_1_100000000001000000101100,     "bl 0x10349730"), // B,BL,BLX
+            (0b1110_1111_101010101010101010101010,     "swi 0x00aaaaaa"), // SWI
             (0b1110_000000_0_0_0011_0100_0101_1001_0110, "mul r3, r6, r5"), // Multiply
             (0b1110_000000_0_1_0011_0100_0101_1001_0110, "muls r3, r6, r5"), // Multiply
             (0b1110_000000_1_0_0011_0100_0101_1001_0110, "mla r3, r6, r5, r4"),  // Multiply
@@ -535,10 +538,13 @@ mod tests {
             (0b1110_00001_1_0_1_0011_0100_0101_1001_0110, "smulls r4, r3, r6, r5"),  // MulLong
             (0b1110_00001_1_1_0_0011_0100_0101_1001_0110, "smlal r4, r3, r6, r5"),  // MulLong
             (0b1110_00001_1_1_1_0011_0100_0101_1001_0110, "smlals r4, r3, r6, r5"),  // MulLong
-            (0b1110_00010_0_0_0__0011_0011_00000000_0100, "mrs r3, cpsr"),  // PSR Reg
-            (0b1110_00010_0_1_0__1111_0011_00000000_0000, ""),  // PSR Reg
-            (0b1110_00010_1_0_0__1110_0011_00000000_0100, "mrs r3, spsr"),  // PSR Reg
-            (0b1110_00010_1_1_0__1111_0011_00000000_0000, ""),  // PSR Reg
+            (0b1110_00010_0_0_0_1111_0011_00000000_0100, "mrs r3, cpsr"),  // PSR Reg
+            (0b1110_00010_1_0_0_1111_0011_00000000_0100, "mrs r3, spsr"),  // PSR Reg
+            (0b1110_00010_0_1_0_1010_1111_00000000_0011, "msr cpsr_fx, r3"),  // PSR Reg
+            (0b1110_00010_1_1_0_0101_1111_00000000_0100, "msr spsr_sc, r4"),  // PSR Reg
+            // (0b1110_000|___Op__|S|__Rn___|__Rd___|__Shift__|Typ_0___Rm___|,     ""), // DataProc A
+            // (0b1110_000|___Op__|S|__Rn___|__Rd___|__Rs____0_Typ_1___Rm___|,     ""), // DataProc B
+            // (0b1110_001|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|,     ""), // DataProc C
         ];
         println!("# Radare disasm");
         for (word, _) in &words_asms {
