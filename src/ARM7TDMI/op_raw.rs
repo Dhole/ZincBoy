@@ -6,7 +6,7 @@ use num_traits::FromPrimitive;
 
 include!(concat!(env!("OUT_DIR"), "/op_raw.rs"));
 
-#[derive(Debug, Eq, PartialEq, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, FromPrimitive, ToPrimitive)]
 pub enum Cond {
     EQ = 0b0000, // Z=1 (equal)
     NE = 0b0001, // Z=0 (not equal)
@@ -53,7 +53,7 @@ impl fmt::Display for Cond {
     }
 }
 
-#[derive(Debug, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, FromPrimitive, ToPrimitive)]
 pub enum AluOp {
     AND = 0b0000, // AND logical;        Rd = Rn AND Op2
     EOR = 0b0001, // XOR logical;        Rd = XOR Op2
@@ -100,7 +100,7 @@ impl fmt::Display for AluOp {
     }
 }
 
-#[derive(Debug, FromPrimitive, ToPrimitive)]
+#[derive(Debug, Clone, Copy, FromPrimitive, ToPrimitive)]
 pub enum ShiftType {
     LSL = 0,
     LSR = 1,
@@ -513,6 +513,16 @@ impl OpRaw {
     }
 }
 
+fn shift_type_imm_asm(st: ShiftType, imm: u8) -> String {
+    match st {
+        ShiftType::LSL if imm == 0 => format!(""),
+        ShiftType::LSR if imm == 0 => format!(", lsr 32"),
+        ShiftType::ASR if imm == 0 => format!(", asr 32"),
+        ShiftType::ROR if imm == 0 => format!(", rrx"),
+        _ => format!(", {} {}", st, imm),
+    }
+}
+
 impl Op {
     pub fn asm(&self, pc: u32) -> String {
         let (op, args) = match &self.base {
@@ -522,14 +532,8 @@ impl Op {
                     AluOp2::Register(reg) => format!(
                         "r{}{}",
                         reg.rm,
-                        match reg.shift {
-                            AluOp2RegisterShift::Immediate(imm) => match reg.st {
-                                ShiftType::LSL if imm == 0 => format!(""),
-                                ShiftType::LSR if imm == 0 => format!(", lsr 32"),
-                                ShiftType::ASR if imm == 0 => format!(", asr 32"),
-                                ShiftType::ROR if imm == 0 => format!(", rrx"),
-                                _ => format!(", {} {}", reg.st, imm),
-                            },
+                        match &reg.shift {
+                            AluOp2RegisterShift::Immediate(imm) => shift_type_imm_asm(reg.st, *imm),
                             AluOp2RegisterShift::Register(rs) => format!(", {} r{}", reg.st, rs),
                         }
                     ),
@@ -654,38 +658,39 @@ impl Op {
                     ),
                 })
             }
-            OpBase::Memory(mem) => (
-                format!(
-                    "{}{}{}",
-                    match mem.op {
-                        MemoryOp::Load => "ldr",
-                        MemoryOp::Store => "str",
-                    },
-                    if mem.byte { "b" } else { "" },
-                    if let MemoryPrePost::Post(true) = mem.pre_post {
-                        "t"
-                    } else {
-                        ""
-                    },
-                ),
-                format!(
-                    "r{}, {}",
-                    mem.rd,
-                    match &mem.addr {
-                        MemoryAddr::Immediate(imm) => {
-                            let offset =
-                                format!("{}{}", if mem.add_offset { "" } else { "-" }, imm);
-                            match mem.pre_post {
-                                MemoryPrePost::Post(_) => format!("[r{}], {}", mem.rn, offset),
-                                MemoryPrePost::Pre(w) => {
-                                    format!("[r{}, {}]{}", mem.rn, offset, if w { "!" } else { "" })
-                                }
+            OpBase::Memory(mem) => {
+                let offset = format!("{}{}", if mem.add_offset { "" } else { "-" }, match &mem.addr {
+                    MemoryAddr::Immediate(imm) => {
+                        format!("{}", imm)
+                    }
+                    MemoryAddr::Register(reg) => format!("r{}{}", reg.rm, shift_type_imm_asm(reg.st, reg.shift)),
+                });
+                (
+                    format!(
+                        "{}{}{}",
+                        match mem.op {
+                            MemoryOp::Load => "ldr",
+                            MemoryOp::Store => "str",
+                        },
+                        if mem.byte { "b" } else { "" },
+                        if let MemoryPrePost::Post(true) = mem.pre_post {
+                            "t"
+                        } else {
+                            ""
+                        },
+                    ),
+                    format!(
+                        "r{}, {}",
+                        mem.rd,
+                        match mem.pre_post {
+                            MemoryPrePost::Post(_) => format!("[r{}], {}", mem.rn, offset),
+                            MemoryPrePost::Pre(w) => {
+                                format!("[r{}, {}]{}", mem.rn, offset, if w { "!" } else { "" })
                             }
                         }
-                        MemoryAddr::Register(reg) => format!("TODO {:?}", reg),
-                    }
-                ),
-            ),
+                    ),
+                )
+            }
             // _ => ("TODO".to_string(), "TODO".to_string()),
         };
         format!("{}{} {}", op, self.cond, args)
@@ -702,58 +707,67 @@ mod tests {
         #[rustfmt::skip]
         let words_asms = vec![
             //                             L   Rn
-            (0b1110_0001001011111111111100_0_1_0011,      "bx r3", "BX, BLX"),
+            (0b1110_0001001011111111111100_0_1_0011,      "bx r3 ", "BX, BLX"),
             (0b1110_0001001011111111111100_1_1_0011,      "blx r3", "BX, BLX"),
             //          L Offset
-            (0b1110_101_0_000000000100011000101000,       "b 0x12356f20", "B,BL,BLX"),
+            (0b1110_101_0_000000000100011000101000,       "b 0x12356f20 ", "B,BL,BLX"),
             (0b1110_101_1_100000000001000000101100,       "bl 0x10349730", "B,BL,BLX"),
             //           Ignored
             (0b1110_1111_101010101010101010101010,        "swi 0x00aaaaaa", "SWI"),
             //             A S Rd   Rn   Rs        Rm
-            (0b1110_000000_0_0_0011_0100_0101_1001_0110,  "mul r3, r6, r5", "Multiply"),
-            (0b1110_000000_0_1_0011_0100_0101_1001_0110,  "muls r3, r6, r5", "Multiply"),
-            (0b1110_000000_1_0_0011_0100_0101_1001_0110,  "mla r3, r6, r5, r4", "Multiply"),
+            (0b1110_000000_0_0_0011_0100_0101_1001_0110,  "mul r3, r6, r5     ", "Multiply"),
+            (0b1110_000000_0_1_0011_0100_0101_1001_0110,  "muls r3, r6, r5    ", "Multiply"),
+            (0b1110_000000_1_0_0011_0100_0101_1001_0110,  "mla r3, r6, r5, r4 ", "Multiply"),
             (0b1110_000000_1_1_0011_0100_0101_1001_0110,  "mlas r3, r6, r5, r4", "Multiply"),
             //            U A S RdHi RdLo Rs        Rm
-            (0b1110_00001_0_0_0_0011_0100_0101_1001_0110, "umull r4, r3, r6, r5", "MulLong"),
+            (0b1110_00001_0_0_0_0011_0100_0101_1001_0110, "umull r4, r3, r6, r5 ", "MulLong"),
             (0b1110_00001_0_0_1_0011_0100_0101_1001_0110, "umulls r4, r3, r6, r5", "MulLong"),
-            (0b1110_00001_0_1_0_0011_0100_0101_1001_0110, "umlal r4, r3, r6, r5", "MulLong"),
+            (0b1110_00001_0_1_0_0011_0100_0101_1001_0110, "umlal r4, r3, r6, r5 ", "MulLong"),
             (0b1110_00001_0_1_1_0011_0100_0101_1001_0110, "umlals r4, r3, r6, r5", "MulLong"),
-            (0b1110_00001_1_0_0_0011_0100_0101_1001_0110, "smull r4, r3, r6, r5", "MulLong"),
+            (0b1110_00001_1_0_0_0011_0100_0101_1001_0110, "smull r4, r3, r6, r5 ", "MulLong"),
             (0b1110_00001_1_0_1_0011_0100_0101_1001_0110, "smulls r4, r3, r6, r5", "MulLong"),
-            (0b1110_00001_1_1_0_0011_0100_0101_1001_0110, "smlal r4, r3, r6, r5", "MulLong"),
+            (0b1110_00001_1_1_0_0011_0100_0101_1001_0110, "smlal r4, r3, r6, r5 ", "MulLong"),
             (0b1110_00001_1_1_1_0011_0100_0101_1001_0110, "smlals r4, r3, r6, r5", "MulLong"),
             //            P L   Fiel Rd            Rm
-            (0b1110_00010_0_0_0_1111_0011_00000000_0100,  "mrs r3, cpsr", "PSR Reg"),
-            (0b1110_00010_1_0_0_1111_0011_00000000_0100,  "mrs r3, spsr", "PSR Reg"),
+            (0b1110_00010_0_0_0_1111_0011_00000000_0100,  "mrs r3, cpsr", "PSR Reg   "),
+            (0b1110_00010_1_0_0_1111_0011_00000000_0100,  "mrs r3, spsr", "PSR Reg   "),
             (0b1110_00010_0_1_0_1010_1111_00000000_0011,  "msr cpsr_fx, r3", "PSR Reg"),
             (0b1110_00010_1_1_0_0101_1111_00000000_0100,  "msr spsr_sc, r4", "PSR Reg"),
             //          Op   S Rn   Rd   Shift St   Rm
-            (0b1110_000_0000_0_0011_0100_00000_00_0_0101,  "and r4, r3, r5", "DataProc A"),
+            (0b1110_000_0000_0_0011_0100_00000_00_0_0101,  "and r4, r3, r5         ", "DataProc A"),
             (0b1110_000_0001_1_0011_0100_00000_01_0_0101,  "eors r4, r3, r5, lsr 32", "DataProc A"),
-            (0b1110_000_0010_0_0011_0100_00000_10_0_0101,  "sub r4, r3, r5, asr 32", "DataProc A"),
-            (0b1110_000_0011_1_0011_0100_00000_11_0_0101,  "rsbs r4, r3, r5, rrx", "DataProc A"),
-            (0b1110_000_0100_0_0011_0100_00001_00_0_0101,  "add r4, r3, r5, lsl 1", "DataProc A"),
-            (0b1110_000_0101_1_0011_0100_00010_01_0_0101,  "adcs r4, r3, r5, lsr 2", "DataProc A"),
-            (0b1110_000_0110_0_0011_0100_00011_10_0_0101,  "sbc r4, r3, r5, asr 3", "DataProc A"),
-            (0b1110_000_0111_0_0011_0100_10100_11_0_0101,  "rsc r4, r3, r5, ror 20", "DataProc A"),
-            (0b1110_000_1000_1_0011_0000_00101_00_0_0101,  "tst r3, r5, lsl 5", "DataProc A"),
-            (0b1110_000_1001_1_0011_1111_00110_01_0_0101,  "teqp r3, r5, lsr 6", "DataProc A"),
-            (0b1110_000_1010_1_0011_0000_10111_10_0_0101,  "cmp r3, r5, asr 23", "DataProc A"),
-            (0b1110_000_1011_1_0011_1111_01000_11_0_0101,  "cmnp r3, r5, ror 8", "DataProc A"),
-            (0b1110_000_1100_0_0011_0100_01001_00_0_0101,  "orr r4, r3, r5, lsl 9", "DataProc A"),
-            (0b1110_000_1101_1_0000_0100_11010_01_0_0101,  "movs r4, r5, lsr 26", "DataProc A"),
-            (0b1110_000_1110_0_0011_0100_01101_10_0_0101,  "bic r4, r3, r5, asr 13", "DataProc A"),
-            (0b1110_000_1111_1_0000_0100_11101_11_0_0101,  "mvns r4, r5, ror 29", "DataProc A"),
+            (0b1110_000_0010_0_0011_0100_00000_10_0_0101,  "sub r4, r3, r5, asr 32 ", "DataProc A"),
+            (0b1110_000_0011_1_0011_0100_00000_11_0_0101,  "rsbs r4, r3, r5, rrx   ", "DataProc A"),
+            (0b1110_000_0100_0_0011_0100_00001_00_0_0101,  "add r4, r3, r5, lsl 1  ", "DataProc A"),
+            (0b1110_000_0101_1_0011_0100_00010_01_0_0101,  "adcs r4, r3, r5, lsr 2 ", "DataProc A"),
+            (0b1110_000_0110_0_0011_0100_00011_10_0_0101,  "sbc r4, r3, r5, asr 3  ", "DataProc A"),
+            (0b1110_000_0111_0_0011_0100_10100_11_0_0101,  "rsc r4, r3, r5, ror 20 ", "DataProc A"),
+            (0b1110_000_1000_1_0011_0000_00101_00_0_0101,  "tst r3, r5, lsl 5      ", "DataProc A"),
+            (0b1110_000_1001_1_0011_1111_00110_01_0_0101,  "teqp r3, r5, lsr 6     ", "DataProc A"),
+            (0b1110_000_1010_1_0011_0000_10111_10_0_0101,  "cmp r3, r5, asr 23     ", "DataProc A"),
+            (0b1110_000_1011_1_0011_1111_01000_11_0_0101,  "cmnp r3, r5, ror 8     ", "DataProc A"),
+            (0b1110_000_1100_0_0011_0100_01001_00_0_0101,  "orr r4, r3, r5, lsl 9  ", "DataProc A"),
+            (0b1110_000_1101_1_0000_0100_11010_01_0_0101,  "movs r4, r5, lsr 26    ", "DataProc A"),
+            (0b1110_000_1110_0_0011_0100_01101_10_0_0101,  "bic r4, r3, r5, asr 13 ", "DataProc A"),
+            (0b1110_000_1111_1_0000_0100_11101_11_0_0101,  "mvns r4, r5, ror 29    ", "DataProc A"),
             //          P U B W L  Rn   Rd   Offset
-            (0b1110_010_0_0_0_0_0__0100_0101_000000000011,  "str r5, [r4], -3", "TransImm9"),
-            (0b1110_010_0_1_0_1_0__0100_0101_000000000111,  "strt r5, [r4], 7", "TransImm9"),
-            (0b1110_010_1_1_0_0_0__0100_0101_000000011001,  "str r5, [r4, 25]", "TransImm9"),
-            (0b1110_010_1_1_1_1_0__0100_0101_000011000010,  "strb r5, [r4, 194]!", "TransImm9"),
-            (0b1110_010_1_1_0_1_1__0100_0101_001010010100,  "ldr r5, [r4, 660]!", "TransImm9"),
-            (0b1110_010_0_1_1_1_1__0100_0101_000011011011,  "ldrbt r5, [r4], 219", "TransImm9"),
-            (0b1110_010_1_0_0_0_1__0100_0101_100000000000,  "ldr r5, [r4, -2048]", "TransImm9"),
+            (0b1110_010_0_0_0_0_0__0100_0101_000000000011,  "str r5, [r4], -3    ", "TransImm9"),
+            (0b1110_010_0_1_0_1_0__0100_0101_000000000111,  "strt r5, [r4], 7    ", "TransImm9"),
+            (0b1110_010_1_1_0_0_0__0100_0101_000000011001,  "str r5, [r4, 25]    ", "TransImm9"),
+            (0b1110_010_1_1_1_1_0__0100_0101_000011000010,  "strb r5, [r4, 194]! ", "TransImm9"),
+            (0b1110_010_1_1_0_1_1__0100_0101_001010010100,  "ldr r5, [r4, 660]!  ", "TransImm9"),
+            (0b1110_010_0_1_1_1_1__0100_0101_000011011011,  "ldrbt r5, [r4], 219 ", "TransImm9"),
+            (0b1110_010_1_0_0_0_1__0100_0101_100000000000,  "ldr r5, [r4, -2048] ", "TransImm9"),
             (0b1110_010_0_0_1_0_1__0100_0101_100111001001,  "ldrb r5, [r4], -2505", "TransImm9"),
+            //          P U B W L  Rn   Rd   Shift St   Rm
+            (0b1110_011_0_0_0_0_0__0100_0101_00000_00_0_0110,  "str r5, [r4], -r6         ", "TransReg9"),
+            (0b1110_011_0_1_0_1_0__0100_0101_00001_01_0_0110,  "strt r5, [r4], r6, lsr 1  ", "TransReg9"),
+            (0b1110_011_1_1_0_0_0__0100_0101_00010_10_0_0110,  "str r5, [r4, r6, asr 2]   ", "TransReg9"),
+            (0b1110_011_1_1_1_1_0__0100_0101_00110_11_0_0110,  "strb r5, [r4, r6, ror 6]! ", "TransReg9"),
+            (0b1110_011_1_1_0_1_1__0100_0101_01001_00_0_0110,  "ldr r5, [r4, r6, lsl 9]!  ", "TransReg9"),
+            (0b1110_011_0_1_1_1_1__0100_0101_10100_01_0_0110,  "ldrbt r5, [r4], r6, lsr 20", "TransReg9"),
+            (0b1110_011_1_0_0_0_1__0100_0101_01010_10_0_0110,  "ldr r5, [r4, -r6, asr 10] ", "TransReg9"),
+            (0b1110_011_0_0_1_0_1__0100_0101_00100_11_0_0110,  "ldrb r5, [r4], -r6, ror 4 ", "TransReg9"),
             // (0b1110_000|___Op__|S|__Rn___|__Rd___|__Rs____0_Typ_1___Rm___|,     ""), // DataProc B
             // (0b1110_001|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|,     ""), // DataProc C
         ];
@@ -777,7 +791,7 @@ mod tests {
                 op,
                 op.to_op()
             );
-            assert_eq!(*asm_good, asm);
+            assert_eq!(*asm_good.trim_end(), asm);
         }
     }
 }
