@@ -273,9 +273,9 @@ pub enum MemoryOp {
 
 #[derive(Debug)]
 pub struct MemoryAddrReg {
-    shift: u8,
-    st: ShiftType,
     rm: u8,
+    st: ShiftType,
+    shift: u8,
 }
 
 #[derive(Debug)]
@@ -291,6 +291,13 @@ pub enum MemoryPrePost {
 }
 
 #[derive(Debug)]
+pub enum MemorySize {
+    Byte,
+    Half,
+    Word,
+}
+
+#[derive(Debug)]
 pub struct Memory {
     op: MemoryOp,
     addr: MemoryAddr,
@@ -298,7 +305,8 @@ pub struct Memory {
     rd: u8,
     pre_post: MemoryPrePost,
     add_offset: bool,
-    byte: bool,
+    size: MemorySize,
+    signed: bool,
 }
 
 #[derive(Debug)]
@@ -481,7 +489,12 @@ impl OpRaw {
                         MemoryPrePost::Post(o.w)
                     },
                     op: if o.l { MemoryOp::Load } else { MemoryOp::Store },
-                    byte: o.b,
+                    size: if o.b {
+                        MemorySize::Byte
+                    } else {
+                        MemorySize::Word
+                    },
+                    signed: false,
                     addr: MemoryAddr::Immediate(o.offset),
                     rn: o.rn,
                     rd: o.rd,
@@ -497,11 +510,62 @@ impl OpRaw {
                         MemoryPrePost::Post(o.w)
                     },
                     op: if o.l { MemoryOp::Load } else { MemoryOp::Store },
-                    byte: o.b,
+                    size: if o.b {
+                        MemorySize::Byte
+                    } else {
+                        MemorySize::Word
+                    },
+                    signed: false,
                     addr: MemoryAddr::Register(MemoryAddrReg {
                         shift: o.shift,
                         st: ShiftType::from_u8(o.typ).unwrap(),
                         rm: o.rm,
+                    }),
+                    rn: o.rn,
+                    rd: o.rd,
+                }),
+            },
+            OpRaw::TransImm10(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Memory(Memory {
+                    add_offset: o.u,
+                    pre_post: if o.p {
+                        MemoryPrePost::Pre(o.w)
+                    } else {
+                        MemoryPrePost::Post(false)
+                    },
+                    op: if o.l { MemoryOp::Load } else { MemoryOp::Store },
+                    size: if o.h {
+                        MemorySize::Half
+                    } else {
+                        MemorySize::Byte
+                    },
+                    signed: o.s,
+                    addr: MemoryAddr::Immediate((o.offset_h << 4 | o.offset_l).into()),
+                    rn: o.rn,
+                    rd: o.rd,
+                }),
+            },
+            OpRaw::TransReg10(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Memory(Memory {
+                    add_offset: o.u,
+                    pre_post: if o.p {
+                        MemoryPrePost::Pre(o.w)
+                    } else {
+                        MemoryPrePost::Post(false)
+                    },
+                    op: if o.l { MemoryOp::Load } else { MemoryOp::Store },
+                    size: if o.h {
+                        MemorySize::Half
+                    } else {
+                        MemorySize::Byte
+                    },
+                    signed: o.s,
+                    addr: MemoryAddr::Register(MemoryAddrReg {
+                        rm: o.rm,
+                        st: ShiftType::LSL,
+                        shift: 0,
                     }),
                     rn: o.rn,
                     rd: o.rd,
@@ -667,12 +731,17 @@ impl Op {
                 });
                 (
                     format!(
-                        "{}{}{}",
+                        "{}{}{}{}",
                         match mem.op {
                             MemoryOp::Load => "ldr",
                             MemoryOp::Store => "str",
                         },
-                        if mem.byte { "b" } else { "" },
+                        if mem.signed { "s" } else { "" },
+                        match mem.size {
+                            MemorySize::Byte => "b",
+                            MemorySize::Half => "h",
+                            MemorySize::Word => "",
+                        },
                         if let MemoryPrePost::Post(true) = mem.pre_post {
                             "t"
                         } else {
@@ -786,6 +855,24 @@ mod tests {
             (0b1110_011_0_1_1_1_1__0100_0101_10100_01_0_0110,  "ldrbt r5, [r4], r6, lsr 20", "TransReg9"),
             (0b1110_011_1_0_0_0_1__0100_0101_01010_10_0_0110,  "ldr r5, [r4, -r6, asr 10] ", "TransReg9"),
             (0b1110_011_0_0_1_0_1__0100_0101_00100_11_0_0110,  "ldrb r5, [r4], -r6, ror 4 ", "TransReg9"),
+            //          P U   W L  Rn   Rd   OffH   S H   OffL
+            (0b1110_000_0_0_1_0_0__0100_0101_0000_1_0_1_1_0000,  "strh r5, [r4], -0 ", "TransImm10"),
+            (0b1110_000_0_1_1_0_0__0100_0101_0000_1_0_1_1_0011,  "strh r5, [r4], 3   ", "TransImm10"),
+            (0b1110_000_1_0_1_0_0__0100_0101_0001_1_0_1_1_0011,  "strh r5, [r4, -19]", "TransImm10"),
+            (0b1110_000_1_1_1_0_0__0100_0101_0010_1_0_1_1_0111,  "strh r5, [r4, 39] ", "TransImm10"),
+            (0b1110_000_0_0_1_0_1__0100_0101_0100_1_0_1_1_1000,  "ldrh r5, [r4], -72", "TransImm10"),
+            (0b1110_000_0_1_1_0_1__0100_0101_0010_1_1_0_1_0111,  "ldrsb r5, [r4], 39", "TransImm10"),
+            (0b1110_000_1_0_1_0_1__0100_0101_0000_1_1_1_1_0011,  "ldrsh r5, [r4, -3]", "TransImm10"),
+            (0b1110_000_1_1_1_0_1__0100_0101_1100_1_0_1_1_1100,  "ldrh r5, [r4, 204] ", "TransImm10"),
+            //          P U   W L  Rn   Rd         S H   Rm
+            (0b1110_000_0_0_0_0_0__0100_0101_00001_0_1_1_0110,  "strh r5, [r4], -r6 ", "TransReg10"),
+            (0b1110_000_0_1_0_0_0__0100_0101_00001_0_1_1_0110,  "strh r5, [r4], r6  ", "TransReg10"),
+            (0b1110_000_1_0_0_0_0__0100_0101_00001_0_1_1_0110,  "strh r5, [r4, -r6] ", "TransReg10"),
+            (0b1110_000_1_1_0_1_0__0100_0101_00001_0_1_1_0110,  "strh r5, [r4, r6]! ", "TransReg10"),
+            (0b1110_000_0_0_0_0_1__0100_0101_00001_0_1_1_0110,  "ldrh r5, [r4], -r6 ", "TransReg10"),
+            (0b1110_000_0_1_0_0_1__0100_0101_00001_1_0_1_0110,  "ldrsb r5, [r4], r6 ", "TransReg10"),
+            (0b1110_000_1_0_0_0_1__0100_0101_00001_1_1_1_0110,  "ldrsh r5, [r4, -r6]", "TransReg10"),
+            (0b1110_000_1_1_0_1_1__0100_0101_00001_0_1_1_0110,  "ldrh r5, [r4, r6]! ", "TransReg10"),
             // (0b1110_000|___Op__|S|__Rn___|__Rd___|__Rs____0_Typ_1___Rm___|,     ""), // DataProc B
             // (0b1110_001|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|,     ""), // DataProc C
         ];
