@@ -528,7 +528,7 @@ impl Op {
         let (op, args) = match &self.base {
             OpBase::Alu(alu) => {
                 let op2 = match &alu.op2 {
-                    AluOp2::Immediate(imm) => format!("0x{}", imm.immediate << imm.shift * 2), // TODO: ROR
+                    AluOp2::Immediate(imm) => format!("0x{:x}", (imm.immediate as u32).rotate_right((imm.shift * 2).into())),
                     AluOp2::Register(reg) => format!(
                         "r{}{}",
                         reg.rm,
@@ -750,6 +750,24 @@ mod tests {
             (0b1110_000_1101_1_0000_0100_11010_01_0_0101,  "movs r4, r5, lsr 26    ", "DataProc A"),
             (0b1110_000_1110_0_0011_0100_01101_10_0_0101,  "bic r4, r3, r5, asr 13 ", "DataProc A"),
             (0b1110_000_1111_1_0000_0100_11101_11_0_0101,  "mvns r4, r5, ror 29    ", "DataProc A"),
+            //          Op   S Rn   Rd   Rs     St   Rm
+            (0b1110_000_0000_0_0011_0100_0000_0_00_1_0101,  "and r4, r3, r5, lsl r0 ", "DataProc B"),
+            (0b1110_000_0001_1_0011_0100_0000_0_01_1_0101,  "eors r4, r3, r5, lsr r0", "DataProc B"),
+            (0b1110_000_0010_0_0011_0100_0000_0_10_1_0101,  "sub r4, r3, r5, asr r0 ", "DataProc B"),
+            (0b1110_000_0011_1_0011_0100_0000_0_11_1_0101,  "rsbs r4, r3, r5, ror r0", "DataProc B"),
+            (0b1110_000_0100_0_0011_0100_0000_0_00_1_0101,  "add r4, r3, r5, lsl r0 ", "DataProc B"),
+            (0b1110_000_0101_1_0011_0100_0001_0_01_1_0101,  "adcs r4, r3, r5, lsr r1", "DataProc B"),
+            (0b1110_000_0110_0_0011_0100_0001_0_10_1_0101,  "sbc r4, r3, r5, asr r1 ", "DataProc B"),
+            (0b1110_000_0111_0_0011_0100_1010_0_11_1_0101,  "rsc r4, r3, r5, ror r10", "DataProc B"),
+            //          Op   S Rn   Rd   Shift Imm
+            (0b1110_001_0000_0_0011_0100_0000_00000001,  "and r4, r3, 0x1        ", "DataProc C"),
+            (0b1110_001_0001_1_0011_0100_0001_00000101,  "eors r4, r3, 0x40000001", "DataProc C"),
+            (0b1110_001_0010_0_0011_0100_0010_00000111,  "sub r4, r3, 0x70000000 ", "DataProc C"),
+            (0b1110_001_0011_1_0011_0100_0011_00010101,  "rsbs r4, r3, 0x54000000", "DataProc C"),
+            (0b1110_001_0100_0_0011_0100_0100_00110101,  "add r4, r3, 0x35000000 ", "DataProc C"),
+            (0b1110_001_0101_1_0011_0100_0101_00111111,  "adcs r4, r3, 0xfc00000 ", "DataProc C"),
+            (0b1110_001_0110_0_0011_0100_0111_11000000,  "sbc r4, r3, 0x3000000  ", "DataProc C"),
+            (0b1110_001_0111_0_0011_0100_1010_11110101,  "rsc r4, r3, 0xf5000    ", "DataProc C"),
             //          P U B W L  Rn   Rd   Offset
             (0b1110_010_0_0_0_0_0__0100_0101_000000000011,  "str r5, [r4], -3    ", "TransImm9"),
             (0b1110_010_0_1_0_1_0__0100_0101_000000000111,  "strt r5, [r4], 7    ", "TransImm9"),
