@@ -297,6 +297,7 @@ pub enum MemorySize {
     Word,
 }
 
+// Load, Store
 #[derive(Debug)]
 pub struct Memory {
     op: MemoryOp,
@@ -310,6 +311,14 @@ pub struct Memory {
 }
 
 #[derive(Debug)]
+pub struct Swap {
+    rn: u8,
+    rd: u8,
+    rm: u8,
+    byte: bool,
+}
+
+#[derive(Debug)]
 pub enum OpBase {
     Alu(Alu),
     Branch(Branch),
@@ -319,6 +328,7 @@ pub enum OpBase {
     Multiply(Multiply),
     Psr(Psr),
     Memory(Memory),
+    Swap(Swap),
 }
 
 #[derive(Debug)]
@@ -571,6 +581,15 @@ impl OpRaw {
                     rd: o.rd,
                 }),
             },
+            OpRaw::TransSwp12(o) => Op {
+                cond: Cond::from_u8(o.cond).unwrap(),
+                base: OpBase::Swap(Swap {
+                    rn: o.rn,
+                    rd: o.rd,
+                    rm: o.rm,
+                    byte: o.b,
+                }),
+            },
             _ => return None,
         };
         Some(op)
@@ -759,6 +778,10 @@ impl Op {
                         }
                     ),
                 )
+            },
+            OpBase::Swap(swp) => {
+                (format!("swp{}", if swp.byte { "b" } else { "" }),
+                format!("r{}, r{}, [r{}]", swp.rd, swp.rm, swp.rn))
             }
             // _ => ("TODO".to_string(), "TODO".to_string()),
         };
@@ -875,6 +898,9 @@ mod tests {
             (0b1110_000_1_1_0_1_1_0100_0101_00001_0_1_1_0110,  "ldrh r5, [r4, r6]! ", "TransReg10"),
             //          Xxx                    Yyy
             (0b1110_011_00000000000000000000_1_0000,  "undefined 0x00000, 0x0", "Undefined"),
+            //          Xxx                    Yyy
+            (0b1110_00010_0_00_0011_0100_00001001_0101_,  "swp r4, r5, [r3] ", "TransSwp12"),
+            (0b1110_00010_1_00_0011_0100_00001001_0101_,  "swpb r4, r5, [r3]", "TransSwp12"),
             // (0b1110_000|___Op__|S|__Rn___|__Rd___|__Rs____0_Typ_1___Rm___|,     ""), // DataProc B
             // (0b1110_001|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|,     ""), // DataProc C
         ];

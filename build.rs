@@ -74,7 +74,7 @@ fn main() -> Result<(), io::Error> {
     "multiply"      => ("|_Cond__|0_0_0_0_0_0|A|S|__Rd___|__Rn___|__Rs___|1_0_0_1|__Rm___|", 1),  // Multiply *
     "multiply_long" => ("|_Cond__|0_0_0_0_1|U|A|S|_RdHi__|_RdLo__|__Rs___|1_0_0_1|__Rm___|", 0),  // MulLong *
     // "qalu"       => ("|_Cond__|0_0_0_1_0|Op_|0|__Rn___|__Rd___|0_0_0_0|0_1_0_1|__Rm___|", 1),  // ARM9:QALU
-    "trans_swp_12"  => ("|_Cond__|0_0_0_1_0|B|0_0|__Rn___|__Rd___|0_0_0_0|1_0_0_1|__Rm___|", 1),  // TransSwp12
+    "trans_swp_12"  => ("|_Cond__|0_0_0_1_0|B|0_0|__Rn___|__Rd___|0_0_0_0|1_0_0_1|__Rm___|", 0),  // TransSwp12
     "data_proc_a"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // DataProc *
     "data_proc_b"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Rs___|0|Typ|1|__Rm___|", 1),  // DataProc *
     "data_proc_c"   => ("|_Cond__|0_0_1|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|", 1),  // DataProc *
