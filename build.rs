@@ -68,31 +68,31 @@ fn main() -> Result<(), io::Error> {
     let ops_desc = hashmap! {
     //                   |..3 ..................2 ..................1 ..................0|
     //                   |1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0|
-    "branch_reg"    => ("|_Cond__|0_0_0_1_0_0_1_0_1_1_1_1_1_1_1_1_1_1_1_1|0_0|L|1|__Rn___|", 0),  // BX,BLX
+    "branch_reg"    => ("|_Cond__|0_0_0_1_0_0_1_0_1_1_1_1_1_1_1_1_1_1_1_1|0_0|L|1|__Rn___|", 0),  // BX,BLX *
     // "bkpt"       => ("|1_1_1_0|0_0_0_1_0_0_1_0|________imm0___________|0_1_1_1|__imm1_|", 1),  // ARM9:BKPT
     // "clz"        => ("|_Cond__|0_0_0_1_0_1_1_0_1_1_1_1|__Rd___|1_1_1_1|0_0_0_1|__Rm___|", 1),  // ARM9:CLZ
-    "multiply"      => ("|_Cond__|0_0_0_0_0_0|A|S|__Rd___|__Rn___|__Rs___|1_0_0_1|__Rm___|", 1),  // Multiply
-    "multiply_long" => ("|_Cond__|0_0_0_0_1|U|A|S|_RdHi__|_RdLo__|__Rs___|1_0_0_1|__Rm___|", 0),  // MulLong
-    "psr_reg"       => ("|_Cond__|0_0_0_1_0|P|L|0|_Field_|__Rd___|0_0_0_0|0_0_0_0|__Rm___|", 0),  // PSR Reg
+    "multiply"      => ("|_Cond__|0_0_0_0_0_0|A|S|__Rd___|__Rn___|__Rs___|1_0_0_1|__Rm___|", 1),  // Multiply *
+    "multiply_long" => ("|_Cond__|0_0_0_0_1|U|A|S|_RdHi__|_RdLo__|__Rs___|1_0_0_1|__Rm___|", 0),  // MulLong *
     // "qalu"       => ("|_Cond__|0_0_0_1_0|Op_|0|__Rn___|__Rd___|0_0_0_0|0_1_0_1|__Rm___|", 1),  // ARM9:QALU
     "trans_swp_12"  => ("|_Cond__|0_0_0_1_0|B|0_0|__Rn___|__Rd___|0_0_0_0|1_0_0_1|__Rm___|", 1),  // TransSwp12
-    "data_proc_a"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // DataProc
-    "data_proc_b"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Rs___|0|Typ|1|__Rm___|", 1),  // DataProc
-    "trans_reg_10"  => ("|_Cond__|0_0_0|P|U|0|W|L|__Rn___|__Rd___|0_0_0_0|1|S|H|1|__Rm___|", 1),  // TransReg10
-    "trans_imm_10"  => ("|_Cond__|0_0_0|P|U|1|W|L|__Rn___|__Rd___|OffsetH|1|S|H|1|OffsetL|", 1),  // TransImm10
+    "data_proc_a"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // DataProc *
+    "data_proc_b"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Rs___|0|Typ|1|__Rm___|", 1),  // DataProc *
+    "data_proc_c"   => ("|_Cond__|0_0_1|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|", 1),  // DataProc *
+    "trans_imm_10"  => ("|_Cond__|0_0_0|P|U|1|W|L|__Rn___|__Rd___|OffsetH|1|S|H|1|OffsetL|", 1),  // TransImm10 *
+    "trans_reg_10"  => ("|_Cond__|0_0_0|P|U|0|W|L|__Rn___|__Rd___|0_0_0_0|1|S|H|1|__Rm___|", 1),  // TransReg10 *
+    "trans_imm_9"   => ("|_Cond__|0_1_0|P|U|B|W|L|__Rn___|__Rd___|_________Offset________|", 1),  // TransImm9 *
+    "trans_reg_9"   => ("|_Cond__|0_1_1|P|U|B|W|L|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // TransReg9 *
     // "multiply_half" => "|_Cond__|0_0_0_1_0|Op_|0|Rd_RdHi|Rn_RdLo|__Rs___|1|y|x|0|__Rm___|", 1),  // MulHalfARM9
-    "psr_imm"       => ("|_Cond__|0_0_1_1_0|P|1|0|_Field_|__Rd___|_Shift_|___Immediate___|", 1),  // PSR Imm
-    "data_proc_c"   => ("|_Cond__|0_0_1|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|", 1),  // DataProc
-    "trans_imm_9"   => ("|_Cond__|0_1_0|P|U|B|W|L|__Rn___|__Rd___|_________Offset________|", 1),  // TransImm9
-    "trans_reg_9"   => ("|_Cond__|0_1_1|P|U|B|W|L|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // TransReg9
-    "undefined"     => ("|_Cond__|0_1_1|________________xxx____________________|1|__yyy__|", 1),  // Undefined
+    "psr_reg"       => ("|_Cond__|0_0_0_1_0|P|L|0|_Field_|__Rd___|0_0_0_0|0_0_0_0|__Rm___|", 0),  // PSR Reg *
+    "psr_imm"       => ("|_Cond__|0_0_1_1_0|P|1|0|_Field_|__Rd___|_Shift_|___Immediate___|", 1),  // PSR Imm *
+    "undefined"     => ("|_Cond__|0_1_1|________________xxx____________________|1|__yyy__|", 1),  // Undefined *
     "block_trans"   => ("|_Cond__|1_0_0|P|U|S|W|L|__Rn___|__________Register_List________|", 1),  // BlockTrans
-    "branch_off"    => ("|_Cond__|1_0_1|L|___________________Offset______________________|", 1),  // B,BL,BLX
+    "branch_off"    => ("|_Cond__|1_0_1|L|___________________Offset______________________|", 1),  // B,BL,BLX *
     // "co_rr"      => ("|_Cond__|1_1_0_0_0_1_0|L|__Rn___|__Rd___|__CPN__|_CPopc_|__CRm__|", 1),  // CoRR ARM9
     "co_data_trans" => ("|_Cond__|1_1_0|P|U|N|W|L|__Rn___|__CRd__|__CPN__|____Offset_____|", 1),  // CoDataTrans
     "co_data_op"    => ("|_Cond__|1_1_1_0|_CPopc_|__CRn__|__CRd__|__CPN__|_CP__|0|__CRm__|", 1),  // CoDataOp
     "co_reg_trans"  => ("|_Cond__|1_1_1_0|CPopc|L|__CRn__|__Rd___|__CPN__|_CP__|1|__CRm__|", 1),  // CoRegTrans
-    "swi"           => ("|_Cond__|1_1_1_1|_____________Ignored_by_Processor______________|", 1),  // SWI
+    "swi"           => ("|_Cond__|1_1_1_1|_____________Ignored_by_Processor______________|", 1),  // SWI *
     };
 
     let mut ops = HashMap::new();
