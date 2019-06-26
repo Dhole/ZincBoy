@@ -26,30 +26,98 @@ pub enum Cond {
     NV = 0b1111, // reserverd
 }
 
+impl Cond {
+    fn as_str<'a>(&self) -> &'a str {
+        match self {
+            Cond::EQ => "eq",
+            Cond::NE => "ne",
+            Cond::CS => "cs",
+            Cond::CC => "cc",
+            Cond::MI => "mi",
+            Cond::PL => "pl",
+            Cond::VS => "vs",
+            Cond::VC => "vc",
+            Cond::HI => "hi",
+            Cond::LS => "ls",
+            Cond::GE => "ge",
+            Cond::LT => "lt",
+            Cond::GT => "gt",
+            Cond::LE => "le",
+            Cond::AL => "",
+            Cond::NV => "nv",
+        }
+    }
+}
+
 impl fmt::Display for Cond {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                Cond::EQ => "eq",
-                Cond::NE => "ne",
-                Cond::CS => "cs",
-                Cond::CC => "cc",
-                Cond::MI => "mi",
-                Cond::PL => "pl",
-                Cond::VS => "vs",
-                Cond::VC => "vc",
-                Cond::HI => "hi",
-                Cond::LS => "ls",
-                Cond::GE => "ge",
-                Cond::LT => "lt",
-                Cond::GT => "gt",
-                Cond::LE => "le",
-                Cond::AL => "",
-                Cond::NV => "nv",
+        write!(f, "{}", self.as_str())
+    }
+}
+
+#[derive(Debug)]
+pub enum Arg {
+    Reg(u8),
+    Val(u32),
+    Shift(ShiftType, Box<Arg>),
+}
+
+impl fmt::Display for Arg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Arg::Reg(reg) => write!(f, "r{}", reg),
+            Arg::Val(val) => {
+                if *val <= 64 {
+                    write!(f, "{}", val)
+                } else {
+                    write!(f, "0x{:x}", val)
+                }
             }
-        )
+            Arg::Shift(st, arg) => match **arg {
+                Arg::Val(0) => match st {
+                    ShiftType::LSL => Ok(()),
+                    ShiftType::LSR => write!(f, "lsr 32",),
+                    ShiftType::ASR => write!(f, "asr 32",),
+                    ShiftType::ROR => write!(f, "rrx",),
+                },
+                _ => write!(f, "{} {}", st.as_str(), arg),
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Assembly<'a> {
+    cond: Cond,
+    mnemonic: &'a str,
+    mode: Vec<&'a str>,
+    args: Vec<Arg>,
+}
+
+impl<'a> Assembly<'a> {
+    pub fn new(mnemonic: &'a str, mode: Vec<&'a str>, args: Vec<Arg>) -> Self {
+        Assembly {
+            cond: Cond::AL,
+            mnemonic,
+            mode,
+            args,
+        }
+    }
+}
+
+impl<'a> fmt::Display for Assembly<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.mnemonic)?;
+        self.mode.iter().try_for_each(|m| write!(f, "{}", m))?;
+        write!(f, "{} ", self.cond.as_str())?;
+        for (i, arg) in self.args.iter().enumerate() {
+            let arg_string = format!("{}", arg);
+            if i != 0 && arg_string.len() != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", arg_string)?;
+        }
+        Ok(())
     }
 }
 
@@ -73,30 +141,32 @@ pub enum AluOp {
     MVN = 0b1111, // not;                Rd = NOT Op2
 }
 
+impl AluOp {
+    fn as_str<'a>(&self) -> &'a str {
+        match self {
+            AluOp::AND => "and",
+            AluOp::EOR => "eor",
+            AluOp::SUB => "sub",
+            AluOp::RSB => "rsb",
+            AluOp::ADD => "add",
+            AluOp::ADC => "adc",
+            AluOp::SBC => "sbc",
+            AluOp::RSC => "rsc",
+            AluOp::TST => "tst",
+            AluOp::TEQ => "teq",
+            AluOp::CMP => "cmp",
+            AluOp::CMN => "cmn",
+            AluOp::ORR => "orr",
+            AluOp::MOV => "mov",
+            AluOp::BIC => "bic",
+            AluOp::MVN => "mvn",
+        }
+    }
+}
+
 impl fmt::Display for AluOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                AluOp::AND => "and",
-                AluOp::EOR => "eor",
-                AluOp::SUB => "sub",
-                AluOp::RSB => "rsb",
-                AluOp::ADD => "add",
-                AluOp::ADC => "adc",
-                AluOp::SBC => "sbc",
-                AluOp::RSC => "rsc",
-                AluOp::TST => "tst",
-                AluOp::TEQ => "teq",
-                AluOp::CMP => "cmp",
-                AluOp::CMN => "cmn",
-                AluOp::ORR => "orr",
-                AluOp::MOV => "mov",
-                AluOp::BIC => "bic",
-                AluOp::MVN => "mvn",
-            }
-        )
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -108,18 +178,20 @@ pub enum ShiftType {
     ROR = 3,
 }
 
+impl ShiftType {
+    fn as_str<'a>(&self) -> &'a str {
+        match self {
+            ShiftType::LSL => "lsl",
+            ShiftType::LSR => "lsr",
+            ShiftType::ASR => "asr",
+            ShiftType::ROR => "ror",
+        }
+    }
+}
+
 impl fmt::Display for ShiftType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                ShiftType::LSL => "lsl",
-                ShiftType::LSR => "lsr",
-                ShiftType::ASR => "asr",
-                ShiftType::ROR => "ror",
-            }
-        )
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -156,6 +228,52 @@ pub struct Alu {
     rn: u8,
     rd: u8,
     op2: AluOp2,
+}
+
+impl Alu {
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        let mnemonic = self.op.as_str();
+        let mut mode = Vec::new();
+        match &self.op {
+            AluOp::TST | AluOp::TEQ | AluOp::CMP | AluOp::CMN => {
+                if self.rd == 0b1111 {
+                    mode.push("p");
+                }
+            }
+            _ if self.s => mode.push("s"),
+            _ => (),
+        };
+        let mut args = match self.op {
+            AluOp::AND
+            | AluOp::EOR
+            | AluOp::SUB
+            | AluOp::RSB
+            | AluOp::ADD
+            | AluOp::ADC
+            | AluOp::SBC
+            | AluOp::RSC
+            | AluOp::ORR
+            | AluOp::BIC => vec![Arg::Reg(self.rd), Arg::Reg(self.rn)],
+            AluOp::TST | AluOp::TEQ | AluOp::CMP | AluOp::CMN => vec![Arg::Reg(self.rn)],
+            AluOp::MOV | AluOp::MVN => vec![Arg::Reg(self.rd)],
+        };
+        match &self.op2 {
+            AluOp2::Immediate(imm) => args.push(Arg::Val(
+                (imm.immediate as u32).rotate_right((imm.shift * 2).into()),
+            )),
+            AluOp2::Register(reg) => {
+                args.push(Arg::Reg(reg.rm));
+                args.push(Arg::Shift(
+                    reg.st,
+                    match &reg.shift {
+                        AluOp2RegisterShift::Immediate(imm) => Box::new(Arg::Val(*imm as u32)),
+                        AluOp2RegisterShift::Register(rs) => Box::new(Arg::Reg(*rs)),
+                    },
+                ));
+            }
+        }
+        Assembly::new(mnemonic, mode, args)
+    }
 }
 
 #[derive(Debug)]
@@ -315,8 +433,9 @@ pub struct Memory {
 pub struct MemoryBlock {
     pre: bool,
     add_offset: bool,
+    psr_force_user_bit: bool,
     write_back: bool,
-    load: MemoryOp,
+    op: MemoryOp,
     rn: u8,
     reg_list: [bool; 16],
 }
@@ -339,6 +458,7 @@ pub enum OpBase {
     Multiply(Multiply),
     Psr(Psr),
     Memory(Memory),
+    MemoryBlock(MemoryBlock),
     Swap(Swap),
 }
 
@@ -601,6 +721,22 @@ impl OpRaw {
                     byte: o.b,
                 }),
             },
+            OpRaw::BlockTrans(o) => {
+                let mut reg_list = [false; 16];
+                (0..16).for_each(|i| reg_list[i] = { o.register_list & (1 << i) != 0 });
+                Op {
+                    cond: Cond::from_u8(o.cond).unwrap(),
+                    base: OpBase::MemoryBlock(MemoryBlock {
+                        pre: o.p,
+                        add_offset: o.u,
+                        psr_force_user_bit: o.s,
+                        write_back: o.w,
+                        op: if o.l { MemoryOp::Load } else { MemoryOp::Store },
+                        rn: o.rn,
+                        reg_list: reg_list,
+                    }),
+                }
+            }
             _ => return None,
         };
         Some(op)
@@ -622,7 +758,10 @@ impl Op {
         let (op, args) = match &self.base {
             OpBase::Alu(alu) => {
                 let op2 = match &alu.op2 {
-                    AluOp2::Immediate(imm) => format!("0x{:x}", (imm.immediate as u32).rotate_right((imm.shift * 2).into())),
+                    AluOp2::Immediate(imm) => format!(
+                        "0x{:x}",
+                        (imm.immediate as u32).rotate_right((imm.shift * 2).into())
+                    ),
                     AluOp2::Register(reg) => format!(
                         "r{}{}",
                         reg.rm,
@@ -753,12 +892,16 @@ impl Op {
                 })
             }
             OpBase::Memory(mem) => {
-                let offset = format!("{}{}", if mem.add_offset { "" } else { "-" }, match &mem.addr {
-                    MemoryAddr::Immediate(imm) => {
-                        format!("{}", imm)
+                let offset = format!(
+                    "{}{}",
+                    if mem.add_offset { "" } else { "-" },
+                    match &mem.addr {
+                        MemoryAddr::Immediate(imm) => format!("{}", imm),
+                        MemoryAddr::Register(reg) => {
+                            format!("r{}{}", reg.rm, shift_type_imm_asm(reg.st, reg.shift))
+                        }
                     }
-                    MemoryAddr::Register(reg) => format!("r{}{}", reg.rm, shift_type_imm_asm(reg.st, reg.shift)),
-                });
+                );
                 (
                     format!(
                         "{}{}{}{}",
@@ -789,14 +932,25 @@ impl Op {
                         }
                     ),
                 )
-            },
-            OpBase::Swap(swp) => {
-                (format!("swp{}", if swp.byte { "b" } else { "" }),
-                format!("r{}, r{}, [r{}]", swp.rd, swp.rm, swp.rn))
             }
-            // _ => ("TODO".to_string(), "TODO".to_string()),
+            OpBase::Swap(swp) => (
+                format!("swp{}", if swp.byte { "b" } else { "" }),
+                format!("r{}, r{}, [r{}]", swp.rd, swp.rm, swp.rn),
+            ),
+            // OpBase::MemoryBlock(mem) => {
+
+            // },
+            _ => ("TODO".to_string(), "TODO".to_string()),
         };
         format!("{}{} {}", op, self.cond, args)
+    }
+    pub fn asm2(&self, pc: u32) -> Assembly {
+        let mut asm = match &self.base {
+            OpBase::Alu(alu) => alu.asm(pc),
+            _ => unreachable!(),
+        };
+        asm.cond = self.cond;
+        asm
     }
 }
 
@@ -926,8 +1080,34 @@ mod tests {
             //          Xxx                    Yyy
             (0b1110_011_00000000000000000000_1_0000,  "undefined 0x00000, 0x0", "Undefined"),
             //          Xxx                    Yyy
-            (0b1110_00010_0_00_0011_0100_00001001_0101_,  "swp r4, r5, [r3] ", "TransSwp12"),
-            (0b1110_00010_1_00_0011_0100_00001001_0101_,  "swpb r4, r5, [r3]", "TransSwp12"),
+            (0b1110_00010_0_00_0011_0100_00001001_0101,  "swp r4, r5, [r3] ", "TransSwp12"),
+            (0b1110_00010_1_00_0011_0100_00001001_0101,  "swpb r4, r5, [r3]", "TransSwp12"),
+            //          P U S W L Rn   RegisterList
+            (0b1110_100_0_0_0_0_0_0100_0000000000000001,  "stmda r4, {r0}                      ", "BlockTrans"),
+            (0b1110_100_0_0_0_1_0_0100_0000000000000011,  "stmda r4!, {r0, r1}                 ", "BlockTrans"),
+            (0b1110_100_0_0_1_0_0_0100_0000000000000101,  "stmda r4, {r0, r2} ^                ", "BlockTrans"),
+            (0b1110_100_0_0_1_1_0_0100_0000000000010110,  "stmda r4!, {r1, r2, r4} ^           ", "BlockTrans"),
+            (0b1110_100_0_1_0_0_0_0100_0000000011011001,  "stm r4, {r0, r3, r4, r6, r7}        ", "BlockTrans"),
+            (0b1110_100_0_1_0_1_0_0100_0001000100000101,  "stm r4!, {r0, r2, r8, ip}           ", "BlockTrans"),
+            (0b1110_100_0_1_1_0_0_0100_0100010001000000,  "stm r4, {r6, sl, lr} ^              ", "BlockTrans"),
+            (0b1110_100_0_1_1_1_0_0100_0001001001001010,  "stm r4!, {r1, r3, r6, sb, ip} ^     ", "BlockTrans"),
+            (0b1110_100_1_0_0_0_0_0100_0100000011000010,  "stmdb r4, {r1, r6, r7, lr}          ", "BlockTrans"),
+            (0b1110_100_1_0_0_1_0_0100_0001010010000010,  "stmdb r4!, {r1, r7, sl, ip}         ", "BlockTrans"),
+            (0b1110_100_1_0_1_0_0_0100_0101001100001000,  "stmdb r4, {r3, r8, sb, ip, lr} ^    ", "BlockTrans"),
+            (0b1110_100_1_0_1_1_0_0100_0000000100000000,  "stmdb r4!, {r8} ^                   ", "BlockTrans"),
+            (0b1110_100_1_1_0_0_0_0100_0000010101010010,  "stmib r4, {r1, r4, r6, r8, sl}      ", "BlockTrans"),
+            (0b1110_100_1_1_0_1_0_0100_0000001100001000,  "stmib r4!, {r3, r8, sb}             ", "BlockTrans"),
+            (0b1110_100_1_1_1_0_0_0100_0000000000000010,  "stmib r4, {r1} ^                    ", "BlockTrans"),
+            (0b1110_100_1_1_1_1_0_0100_0001010100110000,  "stmib r4!, {r4, r5, r8, sl, ip} ^   ", "BlockTrans"),
+            (0b1110_100_0_0_0_0_1_0100_0000100101010000,  "ldmda r4, {r4, r6, r8, fp}          ", "BlockTrans"),
+            (0b1110_100_0_0_0_1_1_0100_0001000010100000,  "ldmda r4!, {r5, r7, ip}             ", "BlockTrans"),
+            (0b1110_100_0_0_1_0_1_0100_0100000110111000,  "ldmda r4, {r3, r4, r5, r7, r8, lr} ^", "BlockTrans"),
+            (0b1110_100_0_0_1_1_1_0100_0001010001000010,  "ldmda r4!, {r1, r6, sl, ip} ^       ", "BlockTrans"),
+            (0b1110_100_0_1_0_0_1_0100_0000000101010000,  "ldm r4, {r4, r6, r8}                ", "BlockTrans"),
+            (0b1110_100_0_1_0_1_1_0100_0001010000101011,  "ldm r4!, {r0, r1, r3, r5, sl, ip}   ", "BlockTrans"),
+            (0b1110_100_0_1_1_0_1_0100_1111111111111111,
+                    "ldm r4, {r0, r1, r2, r3, r4, r5, r6, r7, r8, sb, sl, fp, ip, sp, lr, pc} ^", "BlockTrans"),
+            (0b1110_100_0_1_1_1_1_0100_0001000100010000,  "", "BlockTrans"),
             // (0b1110_000|___Op__|S|__Rn___|__Rd___|__Rs____0_Typ_1___Rm___|,     ""), // DataProc B
             // (0b1110_001|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|,     ""), // DataProc C
         ];
@@ -952,6 +1132,12 @@ mod tests {
                 op.to_op()
             );
             assert_eq!(*asm_good.trim_end(), asm);
+
+            println!("{:?}", op.to_op().unwrap().asm2(pc));
+            let asm2 = op
+                .to_op()
+                .map_or("???".to_string(), |o| format!("{}", o.asm2(pc)));
+            assert_eq!(*asm_good.trim_end(), asm2);
         }
     }
 }
