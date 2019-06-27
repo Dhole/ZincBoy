@@ -55,10 +55,26 @@ impl fmt::Display for Cond {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct StatusRegFields {
+    f: bool,
+    s: bool,
+    x: bool,
+    c: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum StatusReg {
+    Spsr,
+    Cpsr,
+}
+
+#[derive(Debug, Clone)]
 pub enum Arg {
+    StatusReg(StatusReg, Option<StatusRegFields>),
     Reg(u8),
     Val(u32),
+    Offset(u32),
     Shift(ShiftType, Box<Arg>),
 }
 
@@ -66,6 +82,23 @@ impl fmt::Display for Arg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Arg::Reg(reg) => write!(f, "r{}", reg),
+            Arg::StatusReg(sr, opt_srf) => {
+                match sr {
+                    StatusReg::Spsr => write!(f, "spsr")?,
+                    StatusReg::Cpsr => write!(f, "cpsr")?,
+                }
+                if let Some(fields) = opt_srf {
+                    write!(
+                        f,
+                        "_{}{}{}{}",
+                        if fields.f { "f" } else { "" },
+                        if fields.s { "s" } else { "" },
+                        if fields.x { "x" } else { "" },
+                        if fields.c { "c" } else { "" },
+                    )?;
+                }
+                Ok(())
+            }
             Arg::Val(val) => {
                 if *val <= 64 {
                     write!(f, "{}", val)
@@ -73,6 +106,7 @@ impl fmt::Display for Arg {
                     write!(f, "0x{:x}", val)
                 }
             }
+            Arg::Offset(off) => write!(f, "0x{:08x}", off),
             Arg::Shift(st, arg) => match **arg {
                 Arg::Val(0) => match st {
                     ShiftType::LSL => Ok(()),
@@ -87,17 +121,51 @@ impl fmt::Display for Arg {
 }
 
 #[derive(Debug)]
+pub struct Args {
+    v: Vec<Arg>,
+}
+
+impl Args {
+    pub fn new(args_slice: &[Arg]) -> Self {
+        let mut args = Self { v: Vec::new() };
+        args.extend(args_slice);
+        args
+    }
+    pub fn push(&mut self, arg: Arg) {
+        self.v.push(arg);
+    }
+    pub fn extend(&mut self, args_slice: &[Arg]) {
+        self.v.extend_from_slice(args_slice);
+    }
+}
+
+impl fmt::Display for Args {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, arg) in self.v.iter().enumerate() {
+            let arg_string = format!("{}", arg);
+            if i != 0 && arg_string.len() != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", arg_string)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 pub struct Assembly<'a> {
     cond: Cond,
+    pre: &'a str,
     mnemonic: &'a str,
     mode: Vec<&'a str>,
-    args: Vec<Arg>,
+    args: Args,
 }
 
 impl<'a> Assembly<'a> {
-    pub fn new(mnemonic: &'a str, mode: Vec<&'a str>, args: Vec<Arg>) -> Self {
+    pub fn new(pre: &'a str, mnemonic: &'a str, mode: Vec<&'a str>, args: Args) -> Self {
         Assembly {
             cond: Cond::AL,
+            pre,
             mnemonic,
             mode,
             args,
@@ -109,13 +177,9 @@ impl<'a> fmt::Display for Assembly<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.mnemonic)?;
         self.mode.iter().try_for_each(|m| write!(f, "{}", m))?;
-        write!(f, "{} ", self.cond.as_str())?;
-        for (i, arg) in self.args.iter().enumerate() {
-            let arg_string = format!("{}", arg);
-            if i != 0 && arg_string.len() != 0 {
-                write!(f, ", ")?;
-            }
-            write!(f, "{}", arg_string)?;
+        write!(f, "{}", self.cond.as_str())?;
+        if self.args.v.len() > 0 {
+            write!(f, " {}", self.args)?;
         }
         Ok(())
     }
@@ -253,9 +317,9 @@ impl Alu {
             | AluOp::SBC
             | AluOp::RSC
             | AluOp::ORR
-            | AluOp::BIC => vec![Arg::Reg(self.rd), Arg::Reg(self.rn)],
-            AluOp::TST | AluOp::TEQ | AluOp::CMP | AluOp::CMN => vec![Arg::Reg(self.rn)],
-            AluOp::MOV | AluOp::MVN => vec![Arg::Reg(self.rd)],
+            | AluOp::BIC => Args::new(&[Arg::Reg(self.rd), Arg::Reg(self.rn)]),
+            AluOp::TST | AluOp::TEQ | AluOp::CMP | AluOp::CMN => Args::new(&[Arg::Reg(self.rn)]),
+            AluOp::MOV | AluOp::MVN => Args::new(&[Arg::Reg(self.rd)]),
         };
         match &self.op2 {
             AluOp2::Immediate(imm) => args.push(Arg::Val(
@@ -272,7 +336,7 @@ impl Alu {
                 ));
             }
         }
-        Assembly::new(mnemonic, mode, args)
+        Assembly::new("", mnemonic, mode, args)
     }
 }
 
@@ -288,6 +352,7 @@ pub struct Branch {
     exchange: bool,
     addr: BranchAddr,
 }
+
 impl Branch {
     pub fn offset(&self, pc: u32) -> u32 {
         match self.addr {
@@ -305,6 +370,20 @@ impl Branch {
                 offset.0
             }
         }
+    }
+    pub fn asm(&self, pc: u32) -> Assembly {
+        let mut mode = Vec::new();
+        if self.link {
+            mode.push("l");
+        }
+        if self.exchange {
+            mode.push("x");
+        }
+        let args = Args::new(&[match self.addr {
+            BranchAddr::Register(rn) => Arg::Reg(rn),
+            BranchAddr::Offset(_, _) => Arg::Offset(self.offset(pc)),
+        }]);
+        Assembly::new("", "b", mode, args)
     }
 }
 
@@ -335,6 +414,33 @@ pub struct Multiply {
     ops_reg: (u8, u8),
 }
 
+impl Multiply {
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        let pre = match (&self.res, &self.signed) {
+            (MultiplyReg::Reg(_), _) => "",
+            (_, true) => "s",
+            (_, false) => "u",
+        };
+        let mnemonic = if let None = self.acc { "mul" } else { "mla" };
+        let mut mode = Vec::new();
+        if let MultiplyReg::RegHiLo(_, _) = self.res {
+            mode.push("l");
+        }
+        if self.set_cond {
+            mode.push("s")
+        }
+        let mut args = match self.res {
+            MultiplyReg::Reg(rd) => Args::new(&[Arg::Reg(rd)]),
+            MultiplyReg::RegHiLo(rd_hi, rd_lo) => Args::new(&[Arg::Reg(rd_lo), Arg::Reg(rd_hi)]),
+        };
+        args.extend(&[Arg::Reg(self.ops_reg.0), Arg::Reg(self.ops_reg.0)]);
+        if let Some(MultiplyReg::Reg(rs)) = self.acc {
+            args.push(Arg::Reg(rs));
+        }
+        Assembly::new(pre, mnemonic, mode, args)
+    }
+}
+
 // #[derive(Debug)]
 // pub struct Breakpoint {
 //     comment: (u16, u8),
@@ -343,6 +449,16 @@ pub struct Multiply {
 #[derive(Debug)]
 pub struct Undefined {
     xxx: (u32, u8),
+}
+impl Undefined {
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        Assembly::new(
+            "",
+            "undefined",
+            Vec::new(),
+            Args::new(&[Arg::Val(self.xxx.0), Arg::Val(self.xxx.1 as u32)]),
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -381,6 +497,39 @@ pub enum PsrOp {
 pub struct Psr {
     spsr: bool,
     op: PsrOp,
+}
+
+impl Psr {
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        let status_reg = if self.spsr {
+            StatusReg::Spsr
+        } else {
+            StatusReg::Cpsr
+        };
+        let mnemonic = match &self.op {
+            PsrOp::Mrs(_) => "mrs",
+            PsrOp::Msr(_) => "msr",
+        };
+        let args = match &self.op {
+            PsrOp::Mrs(mrs) => Args::new(&[Arg::Reg(mrs.rd), Arg::StatusReg(status_reg, None)]),
+            PsrOp::Msr(msr) => {
+                let fields = StatusRegFields {
+                    f: msr.f,
+                    s: msr.s,
+                    x: msr.x,
+                    c: msr.c,
+                };
+                Args::new(&[
+                    Arg::StatusReg(status_reg, Some(fields)),
+                    match &msr.src {
+                        MsrSrc::Immediate(imm) => Arg::Val((imm.immediate as u32) << imm.shift * 2),
+                        MsrSrc::Register(rd) => Arg::Reg(*rd),
+                    },
+                ])
+            }
+        };
+        Assembly::new("", mnemonic, vec![], args)
+    }
 }
 
 #[derive(Debug)]
@@ -828,7 +977,7 @@ impl Op {
             //     "bkpt".to_string(),
             //     format!("{:03x}, {:01x}", bkpt.comment.0, bkpt.comment.1),
             // ),
-            OpBase::SoftInt(imm) => ("swi".to_string(), format!("0x{:08x}", imm)),
+            OpBase::SoftInt(imm) => ("swi".to_string(), format!("0x{:06x}", imm)),
             OpBase::Undefined(und) => (
                 "undefined".to_string(),
                 format!("0x{:05x}, 0x{:01x}", und.xxx.0, und.xxx.1),
@@ -986,7 +1135,7 @@ mod tests {
             (0b1110_101_0_000000000100011000101000,       "b 0x12356f20 ", "B,BL,BLX"),
             (0b1110_101_1_100000000001000000101100,       "bl 0x10349730", "B,BL,BLX"),
             //           Ignored
-            (0b1110_1111_101010101010101010101010,        "swi 0x00aaaaaa", "SWI"),
+            (0b1110_1111_101010101010101010101010,        "swi 0xaaaaaa", "SWI"),
             //             A S Rd   Rn   Rs        Rm
             (0b1110_000000_0_0_0011_0100_0101_1001_0110,  "mul r3, r6, r5     ", "Multiply"),
             (0b1110_000000_0_1_0011_0100_0101_1001_0110,  "muls r3, r6, r5    ", "Multiply"),
