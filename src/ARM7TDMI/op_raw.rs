@@ -75,12 +75,17 @@ pub enum Arg {
     Reg(u8),
     Val(u32),
     Offset(u32),
-    Shift(ShiftType, Box<Arg>),
+    Shift(Box<Arg>, ShiftType, Box<Arg>),
+    Negative(Box<Arg>),
+    WriteBack(Box<Arg>),
+    Address(Args),
+    RegList([bool; 16], bool), // bool: psr_force_user_bit
 }
 
 impl fmt::Display for Arg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Arg::Negative(arg) => write!(f, "-{}", arg),
             Arg::Reg(reg) => write!(f, "r{}", reg),
             Arg::StatusReg(sr, opt_srf) => {
                 match sr {
@@ -107,20 +112,38 @@ impl fmt::Display for Arg {
                 }
             }
             Arg::Offset(off) => write!(f, "0x{:08x}", off),
-            Arg::Shift(st, arg) => match **arg {
-                Arg::Val(0) => match st {
-                    ShiftType::LSL => Ok(()),
-                    ShiftType::LSR => write!(f, "lsr 32",),
-                    ShiftType::ASR => write!(f, "asr 32",),
-                    ShiftType::ROR => write!(f, "rrx",),
-                },
-                _ => write!(f, "{} {}", st.as_str(), arg),
-            },
+            Arg::Shift(arg0, st, arg) => {
+                write!(f, "{}", arg0)?;
+                match **arg {
+                    Arg::Val(0) => match st {
+                        ShiftType::LSL => Ok(()),
+                        ShiftType::LSR => write!(f, ", lsr 32",),
+                        ShiftType::ASR => write!(f, ", asr 32",),
+                        ShiftType::ROR => write!(f, ", rrx",),
+                    },
+                    _ => write!(f, ", {} {}", st.as_str(), arg),
+                }
+            }
+            Arg::Address(args) => write!(f, "[{}]", args),
+            Arg::WriteBack(arg) => write!(f, "{}!", arg),
+            Arg::RegList(reg_bitmap, s) => {
+                let mut regs = Args::new(&[]);
+                for i in 0..16 {
+                    if reg_bitmap[i] {
+                        regs.push(Arg::Reg(i as u8))
+                    }
+                }
+                write!(f, "{{{}}}", regs)?;
+                if *s {
+                    write!(f, " ^")?;
+                }
+                Ok(())
+            }
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Args {
     v: Vec<Arg>,
 }
@@ -175,7 +198,7 @@ impl<'a> Assembly<'a> {
 
 impl<'a> fmt::Display for Assembly<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.mnemonic)?;
+        write!(f, "{}{}", self.pre, self.mnemonic)?;
         self.mode.iter().try_for_each(|m| write!(f, "{}", m))?;
         write!(f, "{}", self.cond.as_str())?;
         if self.args.v.len() > 0 {
@@ -326,8 +349,8 @@ impl Alu {
                 (imm.immediate as u32).rotate_right((imm.shift * 2).into()),
             )),
             AluOp2::Register(reg) => {
-                args.push(Arg::Reg(reg.rm));
                 args.push(Arg::Shift(
+                    Box::new(Arg::Reg(reg.rm)),
                     reg.st,
                     match &reg.shift {
                         AluOp2RegisterShift::Immediate(imm) => Box::new(Arg::Val(*imm as u32)),
@@ -388,6 +411,17 @@ impl Branch {
 }
 
 #[derive(Debug)]
+pub struct SoftInt {
+    imm: u32,
+}
+
+impl SoftInt {
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        Assembly::new("", "swi", vec![], Args::new(&[Arg::Val(self.imm)]))
+    }
+}
+
+#[derive(Debug)]
 pub enum Half {
     Top,
     Bottom,
@@ -433,7 +467,7 @@ impl Multiply {
             MultiplyReg::Reg(rd) => Args::new(&[Arg::Reg(rd)]),
             MultiplyReg::RegHiLo(rd_hi, rd_lo) => Args::new(&[Arg::Reg(rd_lo), Arg::Reg(rd_hi)]),
         };
-        args.extend(&[Arg::Reg(self.ops_reg.0), Arg::Reg(self.ops_reg.0)]);
+        args.extend(&[Arg::Reg(self.ops_reg.0), Arg::Reg(self.ops_reg.1)]);
         if let Some(MultiplyReg::Reg(rs)) = self.acc {
             args.push(Arg::Reg(rs));
         }
@@ -577,6 +611,52 @@ pub struct Memory {
     signed: bool,
 }
 
+impl Memory {
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        let mnemonic = match self.op {
+            MemoryOp::Load => "ldr",
+            MemoryOp::Store => "str",
+        };
+        let mut mode = Vec::new();
+        if self.signed {
+            mode.push("s");
+        }
+        match self.size {
+            MemorySize::Byte => mode.push("b"),
+            MemorySize::Half => mode.push("h"),
+            _ => (),
+        }
+        if let MemoryPrePost::Post(true) = self.pre_post {
+            mode.push("t");
+        }
+        let mut offset = match &self.addr {
+            MemoryAddr::Immediate(imm) => Arg::Val(*imm as u32),
+            MemoryAddr::Register(reg) => Arg::Shift(
+                Box::new(Arg::Reg(reg.rm)),
+                reg.st,
+                Box::new(Arg::Val(reg.shift as u32)),
+            ),
+        };
+        if !self.add_offset {
+            offset = Arg::Negative(Box::new(offset));
+        }
+        let mut args = Args::new(&[Arg::Reg(self.rd)]);
+        match self.pre_post {
+            MemoryPrePost::Post(_) => {
+                args.extend(&[Arg::Address(Args::new(&[Arg::Reg(self.rn)])), offset])
+            }
+            MemoryPrePost::Pre(w) => {
+                let mut addr = Arg::Address(Args::new(&[Arg::Reg(self.rn), offset]));
+                if w {
+                    addr = Arg::WriteBack(Box::new(addr));
+                }
+                args.extend(&[addr])
+            }
+        }
+        Assembly::new("", mnemonic, mode, args)
+    }
+}
+
 // Load, Store Memory
 #[derive(Debug)]
 pub struct MemoryBlock {
@@ -589,6 +669,27 @@ pub struct MemoryBlock {
     reg_list: [bool; 16],
 }
 
+impl MemoryBlock {
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        let mnemonic = match self.op {
+            MemoryOp::Load => "ldm",
+            MemoryOp::Store => "stm",
+        };
+        let mode = vec![match (self.pre, self.add_offset) {
+            (false, false) => "da",
+            (false, true) => "",
+            (true, false) => "db",
+            (true, true) => "ib",
+        }];
+        let mut arg0 = Arg::Reg(self.rn);
+        if self.write_back {
+            arg0 = Arg::WriteBack(Box::new(arg0));
+        }
+        let args = Args::new(&[arg0, Arg::RegList(self.reg_list, self.psr_force_user_bit)]);
+        Assembly::new("", mnemonic, mode, args)
+    }
+}
+
 #[derive(Debug)]
 pub struct Swap {
     rn: u8,
@@ -597,12 +698,23 @@ pub struct Swap {
     byte: bool,
 }
 
+impl Swap {
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        let args = Args::new(&[
+            Arg::Reg(self.rd),
+            Arg::Reg(self.rm),
+            Arg::Address(Args::new(&[Arg::Reg(self.rn)])),
+        ]);
+        Assembly::new("", "swp", if self.byte { vec!["b"] } else { vec![] }, args)
+    }
+}
+
 #[derive(Debug)]
 pub enum OpBase {
     Alu(Alu),
     Branch(Branch),
     // Breakpoint(Breakpoint),
-    SoftInt(u32),
+    SoftInt(SoftInt),
     Undefined(Undefined),
     Multiply(Multiply),
     Psr(Psr),
@@ -699,7 +811,9 @@ impl OpRaw {
                 }
                 Op {
                     cond: cond,
-                    base: OpBase::SoftInt(o.ignoredby_processor),
+                    base: OpBase::SoftInt(SoftInt {
+                        imm: o.ignoredby_processor,
+                    }),
                 }
             }
             OpRaw::Undefined(o) => Op {
@@ -892,211 +1006,19 @@ impl OpRaw {
     }
 }
 
-fn shift_type_imm_asm(st: ShiftType, imm: u8) -> String {
-    match st {
-        ShiftType::LSL if imm == 0 => format!(""),
-        ShiftType::LSR if imm == 0 => format!(", lsr 32"),
-        ShiftType::ASR if imm == 0 => format!(", asr 32"),
-        ShiftType::ROR if imm == 0 => format!(", rrx"),
-        _ => format!(", {} {}", st, imm),
-    }
-}
-
 impl Op {
-    pub fn asm(&self, pc: u32) -> String {
-        let (op, args) = match &self.base {
-            OpBase::Alu(alu) => {
-                let op2 = match &alu.op2 {
-                    AluOp2::Immediate(imm) => format!(
-                        "0x{:x}",
-                        (imm.immediate as u32).rotate_right((imm.shift * 2).into())
-                    ),
-                    AluOp2::Register(reg) => format!(
-                        "r{}{}",
-                        reg.rm,
-                        match &reg.shift {
-                            AluOp2RegisterShift::Immediate(imm) => shift_type_imm_asm(reg.st, *imm),
-                            AluOp2RegisterShift::Register(rs) => format!(", {} r{}", reg.st, rs),
-                        }
-                    ),
-                };
-                (
-                    format!(
-                        "{}{}",
-                        alu.op,
-                        match alu.op {
-                            AluOp::TST | AluOp::TEQ | AluOp::CMP | AluOp::CMN => {
-                                if alu.rd == 0b1111 {
-                                    "p"
-                                } else {
-                                    ""
-                                }
-                            }
-                            _ => {
-                                if alu.s {
-                                    "s"
-                                } else {
-                                    ""
-                                }
-                            }
-                        }
-                    ),
-                    match alu.op {
-                        AluOp::AND
-                        | AluOp::EOR
-                        | AluOp::SUB
-                        | AluOp::RSB
-                        | AluOp::ADD
-                        | AluOp::ADC
-                        | AluOp::SBC
-                        | AluOp::RSC
-                        | AluOp::ORR
-                        | AluOp::BIC => format!("r{}, r{}, {}", alu.rd, alu.rn, op2),
-                        AluOp::TST | AluOp::TEQ | AluOp::CMP | AluOp::CMN => {
-                            format!("r{}, {}", alu.rn, op2)
-                        }
-                        AluOp::MOV | AluOp::MVN => format!("r{}, {}", alu.rd, op2),
-                    },
-                )
-            }
-            OpBase::Branch(branch) => (
-                format!(
-                    "b{}{}",
-                    if branch.link { "l" } else { "" },
-                    if branch.exchange { "x" } else { "" }
-                ),
-                format!(
-                    "{}",
-                    match branch.addr {
-                        BranchAddr::Register(rn) => format!("r{}", rn),
-                        BranchAddr::Offset(_, _) => format!("0x{:08x}", branch.offset(pc),),
-                    }
-                ),
-            ),
-            // OpBase::Breakpoint(bkpt) => (
-            //     "bkpt".to_string(),
-            //     format!("{:03x}, {:01x}", bkpt.comment.0, bkpt.comment.1),
-            // ),
-            OpBase::SoftInt(imm) => ("swi".to_string(), format!("0x{:06x}", imm)),
-            OpBase::Undefined(und) => (
-                "undefined".to_string(),
-                format!("0x{:05x}, 0x{:01x}", und.xxx.0, und.xxx.1),
-            ),
-            OpBase::Multiply(mul) => (
-                format!(
-                    "{0}{1}{2}{3}",
-                    if let MultiplyReg::Reg(_) = mul.res {
-                        ""
-                    } else {
-                        if mul.signed {
-                            "s"
-                        } else {
-                            "u"
-                        }
-                    },
-                    if let None = mul.acc { "mul" } else { "mla" },
-                    if let MultiplyReg::RegHiLo(_, _) = mul.res {
-                        "l"
-                    } else {
-                        ""
-                    },
-                    if mul.set_cond { "s" } else { "" },
-                ),
-                format!(
-                    "{0}, r{1}, r{2}{3}",
-                    match mul.res {
-                        MultiplyReg::Reg(rd) => format!("r{}", rd),
-                        MultiplyReg::RegHiLo(rd_hi, rd_lo) => format!("r{}, r{}", rd_lo, rd_hi),
-                    },
-                    mul.ops_reg.0,
-                    mul.ops_reg.1,
-                    if let Some(MultiplyReg::Reg(rs)) = mul.acc {
-                        format!(", r{}", rs)
-                    } else {
-                        "".to_string()
-                    },
-                ),
-            ),
-            OpBase::Psr(psr) => {
-                let psr_set = if psr.spsr { "spsr" } else { "cpsr" };
-                (match &psr.op {
-                    PsrOp::Mrs(mrs) => ("mrs".to_string(), format!("r{}, {}", mrs.rd, psr_set)),
-                    PsrOp::Msr(msr) => (
-                        "msr".to_string(),
-                        format!(
-                            "{}_{}{}{}{}, {}",
-                            psr_set,
-                            if msr.f { "f" } else { "" },
-                            if msr.s { "s" } else { "" },
-                            if msr.x { "x" } else { "" },
-                            if msr.c { "c" } else { "" },
-                            match &msr.src {
-                                MsrSrc::Immediate(imm) => {
-                                    format!("{}", imm.immediate << imm.shift * 2)
-                                }
-                                MsrSrc::Register(rd) => format!("r{}", rd),
-                            }
-                        ),
-                    ),
-                })
-            }
-            OpBase::Memory(mem) => {
-                let offset = format!(
-                    "{}{}",
-                    if mem.add_offset { "" } else { "-" },
-                    match &mem.addr {
-                        MemoryAddr::Immediate(imm) => format!("{}", imm),
-                        MemoryAddr::Register(reg) => {
-                            format!("r{}{}", reg.rm, shift_type_imm_asm(reg.st, reg.shift))
-                        }
-                    }
-                );
-                (
-                    format!(
-                        "{}{}{}{}",
-                        match mem.op {
-                            MemoryOp::Load => "ldr",
-                            MemoryOp::Store => "str",
-                        },
-                        if mem.signed { "s" } else { "" },
-                        match mem.size {
-                            MemorySize::Byte => "b",
-                            MemorySize::Half => "h",
-                            MemorySize::Word => "",
-                        },
-                        if let MemoryPrePost::Post(true) = mem.pre_post {
-                            "t"
-                        } else {
-                            ""
-                        },
-                    ),
-                    format!(
-                        "r{}, {}",
-                        mem.rd,
-                        match mem.pre_post {
-                            MemoryPrePost::Post(_) => format!("[r{}], {}", mem.rn, offset),
-                            MemoryPrePost::Pre(w) => {
-                                format!("[r{}, {}]{}", mem.rn, offset, if w { "!" } else { "" })
-                            }
-                        }
-                    ),
-                )
-            }
-            OpBase::Swap(swp) => (
-                format!("swp{}", if swp.byte { "b" } else { "" }),
-                format!("r{}, r{}, [r{}]", swp.rd, swp.rm, swp.rn),
-            ),
-            // OpBase::MemoryBlock(mem) => {
-
-            // },
-            _ => ("TODO".to_string(), "TODO".to_string()),
-        };
-        format!("{}{} {}", op, self.cond, args)
-    }
-    pub fn asm2(&self, pc: u32) -> Assembly {
+    pub fn asm(&self, pc: u32) -> Assembly {
         let mut asm = match &self.base {
-            OpBase::Alu(alu) => alu.asm(pc),
-            _ => unreachable!(),
+            OpBase::Alu(op) => op.asm(pc),
+            OpBase::Branch(op) => op.asm(pc),
+            OpBase::SoftInt(op) => op.asm(pc),
+            OpBase::Multiply(op) => op.asm(pc),
+            OpBase::Undefined(op) => op.asm(pc),
+            OpBase::Psr(op) => op.asm(pc),
+            OpBase::Memory(op) => op.asm(pc),
+            OpBase::Swap(op) => op.asm(pc),
+            OpBase::MemoryBlock(op) => op.asm(pc),
+            // _ => unreachable!(),
         };
         asm.cond = self.cond;
         asm
@@ -1182,7 +1104,7 @@ mod tests {
             (0b1110_000_0110_0_0011_0100_0001_0_10_1_0101,  "sbc r4, r3, r5, asr r1 ", "DataProc B"),
             (0b1110_000_0111_0_0011_0100_1010_0_11_1_0101,  "rsc r4, r3, r5, ror r10", "DataProc B"),
             //          Op   S Rn   Rd   Shift Imm
-            (0b1110_001_0000_0_0011_0100_0000_00000001,  "and r4, r3, 0x1        ", "DataProc C"),
+            (0b1110_001_0000_0_0011_0100_0000_00000001,  "and r4, r3, 1          ", "DataProc C"),
             (0b1110_001_0001_1_0011_0100_0001_00000101,  "eors r4, r3, 0x40000001", "DataProc C"),
             (0b1110_001_0010_0_0011_0100_0010_00000111,  "sub r4, r3, 0x70000000 ", "DataProc C"),
             (0b1110_001_0011_1_0011_0100_0011_00010101,  "rsbs r4, r3, 0x54000000", "DataProc C"),
@@ -1191,14 +1113,14 @@ mod tests {
             (0b1110_001_0110_0_0011_0100_0111_11000000,  "sbc r4, r3, 0x3000000  ", "DataProc C"),
             (0b1110_001_0111_0_0011_0100_1010_11110101,  "rsc r4, r3, 0xf5000    ", "DataProc C"),
             //          P U B W L Rn   Rd   Offset
-            (0b1110_010_0_0_0_0_0_0100_0101_000000000011,  "str r5, [r4], -3    ", "TransImm9"),
-            (0b1110_010_0_1_0_1_0_0100_0101_000000000111,  "strt r5, [r4], 7    ", "TransImm9"),
-            (0b1110_010_1_1_0_0_0_0100_0101_000000011001,  "str r5, [r4, 25]    ", "TransImm9"),
-            (0b1110_010_1_1_1_1_0_0100_0101_000011000010,  "strb r5, [r4, 194]! ", "TransImm9"),
-            (0b1110_010_1_1_0_1_1_0100_0101_001010010100,  "ldr r5, [r4, 660]!  ", "TransImm9"),
-            (0b1110_010_0_1_1_1_1_0100_0101_000011011011,  "ldrbt r5, [r4], 219 ", "TransImm9"),
-            (0b1110_010_1_0_0_0_1_0100_0101_100000000000,  "ldr r5, [r4, -2048] ", "TransImm9"),
-            (0b1110_010_0_0_1_0_1_0100_0101_100111001001,  "ldrb r5, [r4], -2505", "TransImm9"),
+            (0b1110_010_0_0_0_0_0_0100_0101_000000000011,  "str r5, [r4], -3     ", "TransImm9"),
+            (0b1110_010_0_1_0_1_0_0100_0101_000000000111,  "strt r5, [r4], 7     ", "TransImm9"),
+            (0b1110_010_1_1_0_0_0_0100_0101_000000011001,  "str r5, [r4, 25]     ", "TransImm9"),
+            (0b1110_010_1_1_1_1_0_0100_0101_000011000010,  "strb r5, [r4, 0xc2]! ", "TransImm9"),
+            (0b1110_010_1_1_0_1_1_0100_0101_001010010100,  "ldr r5, [r4, 0x294]! ", "TransImm9"),
+            (0b1110_010_0_1_1_1_1_0100_0101_000011011011,  "ldrbt r5, [r4], 0xdb ", "TransImm9"),
+            (0b1110_010_1_0_0_0_1_0100_0101_100000000000,  "ldr r5, [r4, -0x800] ", "TransImm9"),
+            (0b1110_010_0_0_1_0_1_0100_0101_100111001001,  "ldrb r5, [r4], -0x9c9", "TransImm9"),
             //          P U B W L Rn   Rd   Shift St   Rm
             (0b1110_011_0_0_0_0_0_0100_0101_00000_00_0_0110,  "str r5, [r4], -r6         ", "TransReg9"),
             (0b1110_011_0_1_0_1_0_0100_0101_00001_01_0_0110,  "strt r5, [r4], r6, lsr 1  ", "TransReg9"),
@@ -1209,14 +1131,14 @@ mod tests {
             (0b1110_011_1_0_0_0_1_0100_0101_01010_10_0_0110,  "ldr r5, [r4, -r6, asr 10] ", "TransReg9"),
             (0b1110_011_0_0_1_0_1_0100_0101_00100_11_0_0110,  "ldrb r5, [r4], -r6, ror 4 ", "TransReg9"),
             //          P U   W L Rn   Rd   OffH   S H   OffL
-            (0b1110_000_0_0_1_0_0_0100_0101_0000_1_0_1_1_0000,  "strh r5, [r4], -0 ", "TransImm10"),
-            (0b1110_000_0_1_1_0_0_0100_0101_0000_1_0_1_1_0011,  "strh r5, [r4], 3   ", "TransImm10"),
-            (0b1110_000_1_0_1_0_0_0100_0101_0001_1_0_1_1_0011,  "strh r5, [r4, -19]", "TransImm10"),
-            (0b1110_000_1_1_1_0_0_0100_0101_0010_1_0_1_1_0111,  "strh r5, [r4, 39] ", "TransImm10"),
-            (0b1110_000_0_0_1_0_1_0100_0101_0100_1_0_1_1_1000,  "ldrh r5, [r4], -72", "TransImm10"),
-            (0b1110_000_0_1_1_0_1_0100_0101_0010_1_1_0_1_0111,  "ldrsb r5, [r4], 39", "TransImm10"),
-            (0b1110_000_1_0_1_0_1_0100_0101_0000_1_1_1_1_0011,  "ldrsh r5, [r4, -3]", "TransImm10"),
-            (0b1110_000_1_1_1_0_1_0100_0101_1100_1_0_1_1_1100,  "ldrh r5, [r4, 204] ", "TransImm10"),
+            (0b1110_000_0_0_1_0_0_0100_0101_0000_1_0_1_1_0000,  "strh r5, [r4], -0   ", "TransImm10"),
+            (0b1110_000_0_1_1_0_0_0100_0101_0000_1_0_1_1_0011,  "strh r5, [r4], 3    ", "TransImm10"),
+            (0b1110_000_1_0_1_0_0_0100_0101_0001_1_0_1_1_0011,  "strh r5, [r4, -19]  ", "TransImm10"),
+            (0b1110_000_1_1_1_0_0_0100_0101_0010_1_0_1_1_0111,  "strh r5, [r4, 39]   ", "TransImm10"),
+            (0b1110_000_0_0_1_0_1_0100_0101_0100_1_0_1_1_1000,  "ldrh r5, [r4], -0x48", "TransImm10"),
+            (0b1110_000_0_1_1_0_1_0100_0101_0010_1_1_0_1_0111,  "ldrsb r5, [r4], 39  ", "TransImm10"),
+            (0b1110_000_1_0_1_0_1_0100_0101_0000_1_1_1_1_0011,  "ldrsh r5, [r4, -3]  ", "TransImm10"),
+            (0b1110_000_1_1_1_0_1_0100_0101_1100_1_0_1_1_1100,  "ldrh r5, [r4, 0xcc] ", "TransImm10"),
             //          P U   W L Rn   Rd         S H   Rm
             (0b1110_000_0_0_0_0_0_0100_0101_00001_0_1_1_0110,  "strh r5, [r4], -r6 ", "TransReg10"),
             (0b1110_000_0_1_0_0_0_0100_0101_00001_0_1_1_0110,  "strh r5, [r4], r6  ", "TransReg10"),
@@ -1227,38 +1149,36 @@ mod tests {
             (0b1110_000_1_0_0_0_1_0100_0101_00001_1_1_1_0110,  "ldrsh r5, [r4, -r6]", "TransReg10"),
             (0b1110_000_1_1_0_1_1_0100_0101_00001_0_1_1_0110,  "ldrh r5, [r4, r6]! ", "TransReg10"),
             //          Xxx                    Yyy
-            (0b1110_011_00000000000000000000_1_0000,  "undefined 0x00000, 0x0", "Undefined"),
+            (0b1110_011_00000000000000000000_1_0000,  "undefined 0, 0", "Undefined"),
             //          Xxx                    Yyy
             (0b1110_00010_0_00_0011_0100_00001001_0101,  "swp r4, r5, [r3] ", "TransSwp12"),
             (0b1110_00010_1_00_0011_0100_00001001_0101,  "swpb r4, r5, [r3]", "TransSwp12"),
             //          P U S W L Rn   RegisterList
-            (0b1110_100_0_0_0_0_0_0100_0000000000000001,  "stmda r4, {r0}                      ", "BlockTrans"),
-            (0b1110_100_0_0_0_1_0_0100_0000000000000011,  "stmda r4!, {r0, r1}                 ", "BlockTrans"),
-            (0b1110_100_0_0_1_0_0_0100_0000000000000101,  "stmda r4, {r0, r2} ^                ", "BlockTrans"),
-            (0b1110_100_0_0_1_1_0_0100_0000000000010110,  "stmda r4!, {r1, r2, r4} ^           ", "BlockTrans"),
-            (0b1110_100_0_1_0_0_0_0100_0000000011011001,  "stm r4, {r0, r3, r4, r6, r7}        ", "BlockTrans"),
-            (0b1110_100_0_1_0_1_0_0100_0001000100000101,  "stm r4!, {r0, r2, r8, ip}           ", "BlockTrans"),
-            (0b1110_100_0_1_1_0_0_0100_0100010001000000,  "stm r4, {r6, sl, lr} ^              ", "BlockTrans"),
-            (0b1110_100_0_1_1_1_0_0100_0001001001001010,  "stm r4!, {r1, r3, r6, sb, ip} ^     ", "BlockTrans"),
-            (0b1110_100_1_0_0_0_0_0100_0100000011000010,  "stmdb r4, {r1, r6, r7, lr}          ", "BlockTrans"),
-            (0b1110_100_1_0_0_1_0_0100_0001010010000010,  "stmdb r4!, {r1, r7, sl, ip}         ", "BlockTrans"),
-            (0b1110_100_1_0_1_0_0_0100_0101001100001000,  "stmdb r4, {r3, r8, sb, ip, lr} ^    ", "BlockTrans"),
-            (0b1110_100_1_0_1_1_0_0100_0000000100000000,  "stmdb r4!, {r8} ^                   ", "BlockTrans"),
-            (0b1110_100_1_1_0_0_0_0100_0000010101010010,  "stmib r4, {r1, r4, r6, r8, sl}      ", "BlockTrans"),
-            (0b1110_100_1_1_0_1_0_0100_0000001100001000,  "stmib r4!, {r3, r8, sb}             ", "BlockTrans"),
-            (0b1110_100_1_1_1_0_0_0100_0000000000000010,  "stmib r4, {r1} ^                    ", "BlockTrans"),
-            (0b1110_100_1_1_1_1_0_0100_0001010100110000,  "stmib r4!, {r4, r5, r8, sl, ip} ^   ", "BlockTrans"),
-            (0b1110_100_0_0_0_0_1_0100_0000100101010000,  "ldmda r4, {r4, r6, r8, fp}          ", "BlockTrans"),
-            (0b1110_100_0_0_0_1_1_0100_0001000010100000,  "ldmda r4!, {r5, r7, ip}             ", "BlockTrans"),
-            (0b1110_100_0_0_1_0_1_0100_0100000110111000,  "ldmda r4, {r3, r4, r5, r7, r8, lr} ^", "BlockTrans"),
-            (0b1110_100_0_0_1_1_1_0100_0001010001000010,  "ldmda r4!, {r1, r6, sl, ip} ^       ", "BlockTrans"),
-            (0b1110_100_0_1_0_0_1_0100_0000000101010000,  "ldm r4, {r4, r6, r8}                ", "BlockTrans"),
-            (0b1110_100_0_1_0_1_1_0100_0001010000101011,  "ldm r4!, {r0, r1, r3, r5, sl, ip}   ", "BlockTrans"),
+            (0b1110_100_0_0_0_0_0_0100_0000000000000001,  "stmda r4, {r0}                        ", "BlockTrans"),
+            (0b1110_100_0_0_0_1_0_0100_0000000000000011,  "stmda r4!, {r0, r1}                   ", "BlockTrans"),
+            (0b1110_100_0_0_1_0_0_0100_0000000000000101,  "stmda r4, {r0, r2} ^                  ", "BlockTrans"),
+            (0b1110_100_0_0_1_1_0_0100_0000000000010110,  "stmda r4!, {r1, r2, r4} ^             ", "BlockTrans"),
+            (0b1110_100_0_1_0_0_0_0100_0000000011011001,  "stm r4, {r0, r3, r4, r6, r7}          ", "BlockTrans"),
+            (0b1110_100_0_1_0_1_0_0100_0001000100000101,  "stm r4!, {r0, r2, r8, r12}            ", "BlockTrans"),
+            (0b1110_100_0_1_1_0_0_0100_0100010001000000,  "stm r4, {r6, r10, r14} ^              ", "BlockTrans"),
+            (0b1110_100_0_1_1_1_0_0100_0001001001001010,  "stm r4!, {r1, r3, r6, r9, r12} ^      ", "BlockTrans"),
+            (0b1110_100_1_0_0_0_0_0100_0100000011000010,  "stmdb r4, {r1, r6, r7, r14}           ", "BlockTrans"),
+            (0b1110_100_1_0_0_1_0_0100_0001010010000010,  "stmdb r4!, {r1, r7, r10, r12}         ", "BlockTrans"),
+            (0b1110_100_1_0_1_0_0_0100_0101001100001000,  "stmdb r4, {r3, r8, r9, r12, r14} ^    ", "BlockTrans"),
+            (0b1110_100_1_0_1_1_0_0100_0000000100000000,  "stmdb r4!, {r8} ^                     ", "BlockTrans"),
+            (0b1110_100_1_1_0_0_0_0100_0000010101010010,  "stmib r4, {r1, r4, r6, r8, r10}       ", "BlockTrans"),
+            (0b1110_100_1_1_0_1_0_0100_0000001100001000,  "stmib r4!, {r3, r8, r9}               ", "BlockTrans"),
+            (0b1110_100_1_1_1_0_0_0100_0000000000000010,  "stmib r4, {r1} ^                      ", "BlockTrans"),
+            (0b1110_100_1_1_1_1_0_0100_0001010100110000,  "stmib r4!, {r4, r5, r8, r10, r12} ^   ", "BlockTrans"),
+            (0b1110_100_0_0_0_0_1_0100_0000100101010000,  "ldmda r4, {r4, r6, r8, r11}           ", "BlockTrans"),
+            (0b1110_100_0_0_0_1_1_0100_0001000010100000,  "ldmda r4!, {r5, r7, r12}              ", "BlockTrans"),
+            (0b1110_100_0_0_1_0_1_0100_0100000110111000,  "ldmda r4, {r3, r4, r5, r7, r8, r14} ^ ", "BlockTrans"),
+            (0b1110_100_0_0_1_1_1_0100_0001010001000010,  "ldmda r4!, {r1, r6, r10, r12} ^       ", "BlockTrans"),
+            (0b1110_100_0_1_0_0_1_0100_0000000101010000,  "ldm r4, {r4, r6, r8}                  ", "BlockTrans"),
+            (0b1110_100_0_1_0_1_1_0100_0001010000101011,  "ldm r4!, {r0, r1, r3, r5, r10, r12}   ", "BlockTrans"),
             (0b1110_100_0_1_1_0_1_0100_1111111111111111,
-                    "ldm r4, {r0, r1, r2, r3, r4, r5, r6, r7, r8, sb, sl, fp, ip, sp, lr, pc} ^", "BlockTrans"),
-            (0b1110_100_0_1_1_1_1_0100_0001000100010000,  "", "BlockTrans"),
-            // (0b1110_000|___Op__|S|__Rn___|__Rd___|__Rs____0_Typ_1___Rm___|,     ""), // DataProc B
-            // (0b1110_001|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|,     ""), // DataProc C
+                    "ldm r4, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15} ^", "BlockTrans"),
+            (0b1110_100_0_1_1_1_1_0100_0001000100010000,  "ldm r4!, {r4, r8, r12} ^              ", "BlockTrans"),
         ];
         println!("# Radare disasm");
         for (word, _, desc) in &words_asms {
@@ -1270,23 +1190,22 @@ mod tests {
             );
         }
         for (word, asm_good, _) in &words_asms {
-            let op = OpRaw::new(*word).unwrap();
-            let asm = op.to_op().map_or("???".to_string(), |o| o.asm(pc));
+            let op_raw = OpRaw::new(*word).unwrap();
+            let op = op_raw.to_op().unwrap_or(Op {
+                cond: Cond::AL,
+                base: OpBase::Undefined(Undefined { xxx: (0, 0) }),
+            });
+            let asm = op.asm(pc);
             println!(
-                "{:08x}: {:08x} {} | {:?} - {:?}",
+                "{:08x}: {:08x} {} {:?}| {:?} - {:?}",
                 pc,
                 (*word as u32).to_be(),
                 asm,
+                asm,
                 op,
-                op.to_op()
+                op_raw,
             );
-            assert_eq!(*asm_good.trim_end(), asm);
-
-            println!("{:?}", op.to_op().unwrap().asm2(pc));
-            let asm2 = op
-                .to_op()
-                .map_or("???".to_string(), |o| format!("{}", o.asm2(pc)));
-            assert_eq!(*asm_good.trim_end(), asm2);
+            assert_eq!(*asm_good.trim_end(), format!("{}", asm));
         }
     }
 }

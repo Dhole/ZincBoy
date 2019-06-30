@@ -20,17 +20,15 @@ fn main() -> Result<(), io::Error> {
             break;
         }
         let word = u32::from_le_bytes(*array_ref![data, i, 4]);
-        let op = OpRaw::new(word);
+        let op_raw = OpRaw::new(word).unwrap();
+        let op = op_raw.to_op().unwrap();
         // println!("{:08x}: {:08x} {:?}", i, word.to_be(), op.to_op());
         println!(
-            "{:08x}: {:08x} {} | {}",
+            "{:08x}: {:08x} {} | {:?}",
             i,
             word.to_be(),
-            match &op {
-                None => "undefined (0)".to_string(),
-                Some(op) => op.to_op().map_or("???".to_string(), |o| o.asm(i as u32)),
-            },
-            op.map_or("???".to_string(), |op| format!("{:?}", op.to_op())),
+            op.asm(i as u32),
+            op,
         );
         i += 4;
     }
