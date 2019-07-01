@@ -180,17 +180,33 @@ fn main() -> Result<(), io::Error> {
     }
 
     write!(f, "#[derive(Debug)]\n")?;
+    write!(f, "pub struct OpRawUnknown {{\n")?;
+    write!(f, "  cond: u8,\n")?;
+    write!(f, "  word: u32,\n")?;
+    write!(f, "}}\n\n")?;
+
+    write!(f, "impl OpRawUnknown {{\n")?;
+    write!(f, "  pub fn new(v: u32) -> Self {{\n")?;
+    write!(f, "    Self {{\n")?;
+    write!(f, "      cond     : ((v & 0b11110000000000000000000000000000) >> 28) as u8,\n")?;
+    write!(f, "      word     : ((v & 0b11111111111111111111111111111111) >>  0) as u32,\n")?;
+    write!(f, "    }}\n")?;
+    write!(f, "  }}\n")?;
+    write!(f, "}}\n\n")?;
+
+    write!(f, "#[derive(Debug)]\n")?;
     write!(f, "pub enum OpRaw {{\n")?;
     for (op_name, _) in &ops {
         write!(f, "  {0}(OpRaw{0}),\n", op_name.to_pascal_case())?;
     }
+    write!(f, "  Unknown(OpRawUnknown),\n")?;
     write!(f, "}}\n\n")?;
 
     let max_len_snake = ops.iter().max_by_key(|(name, _)| name.len()).unwrap().0.len();
     let max_len_pascal = ops.iter().max_by_key(|(name, _)| name.to_pascal_case().len())
         .unwrap().0.to_pascal_case().len();
     write!(f, "impl OpRaw {{\n")?;
-    write!(f, "  pub fn new(v: u32) -> Option<Self> {{\n")?;
+    write!(f, "  pub fn new(v: u32) -> Self {{\n")?;
     write!(f, "    match v {{\n")?;
     for priority in 0..2 {
         if priority != 0 {
@@ -201,7 +217,7 @@ fn main() -> Result<(), io::Error> {
             let pad_snake = max_len_snake - op_name.len();
             let pad_pascal = max_len_pascal - op_name.to_pascal_case().len();
             write!(f, "      _ if (v & OP_{op_up}_MASK{0:<pad0$}) == OP_{op_up}_VAL{0:<pad0$} => \
-                   Some(OpRaw::{op}({0:>pad1$}{0:>pad1$}OpRaw{op}::new(v))),\n",
+                   OpRaw::{op}({0:>pad1$}{0:>pad1$}OpRaw{op}::new(v)),\n",
                    "",
                    op_up= op_name.to_uppercase(),
                    op=op_name.to_pascal_case(),
@@ -209,7 +225,11 @@ fn main() -> Result<(), io::Error> {
                    pad1=pad_pascal)?;
         }
         if priority != 0 {
-            write!(f, "      _ => None,\n")?;
+            write!(f, "      _ {0:>pad$}=> OpRaw::Unknown({0:>pad1$}OpRawUnknown::new(v)),\n",
+            "",
+            pad=max_len_snake*2 + max_len_pascal*2 + 5,
+            pad1=(max_len_pascal - "Unknown".len()) * 2,
+            )?;
             write!(f, "      }},\n")?;
         }
     }
