@@ -208,6 +208,26 @@ impl<'a> fmt::Display for Assembly<'a> {
     }
 }
 
+#[derive(Debug)]
+pub enum OpBase {
+    Alu(Alu),
+    Branch(Branch),
+    // Breakpoint(Breakpoint),
+    SoftInt(SoftInt),
+    Undefined(Undefined),
+    Multiply(Multiply),
+    Psr(Psr),
+    Memory(Memory),
+    MemoryBlock(MemoryBlock),
+    Swap(Swap),
+}
+
+#[derive(Debug)]
+pub struct Op {
+    cond: Cond,
+    base: OpBase,
+}
+
 #[derive(Debug, Clone, Copy, FromPrimitive, ToPrimitive)]
 pub enum AluOp {
     AND = 0b0000, // AND logical;        Rd = Rn AND Op2
@@ -363,6 +383,62 @@ impl Alu {
     }
 }
 
+impl OpRawDataProcA {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Alu(Alu {
+                op: AluOp::from_u8(self.op).unwrap(),
+                s: self.s,
+                rn: self.rn,
+                rd: self.rd,
+                op2: AluOp2::Register(AluOp2Register {
+                    shift: AluOp2RegisterShift::Immediate(self.shift),
+                    st: ShiftType::from_u8(self.typ).unwrap(),
+                    rm: self.rm,
+                }),
+            }),
+        })
+    }
+}
+
+impl OpRawDataProcB {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Alu(Alu {
+                op: AluOp::from_u8(self.op).unwrap(),
+                s: self.s,
+                rn: self.rn,
+                rd: self.rd,
+                op2: AluOp2::Register(AluOp2Register {
+                    shift: AluOp2RegisterShift::Register(self.rs),
+                    st: ShiftType::from_u8(self.typ).unwrap(),
+                    rm: self.rm,
+                }),
+            }),
+        })
+    }
+}
+
+impl OpRawDataProcC {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Alu(Alu {
+                op: AluOp::from_u8(self.op).unwrap(),
+                s: self.s,
+                rn: self.rn,
+                rd: self.rd,
+                op2: AluOp2::Immediate(AluOp2Immediate {
+                    shift: self.shift,
+                    immediate: self.immediate,
+                }),
+            }),
+        })
+    }
+}
+
 #[derive(Debug)]
 pub enum BranchAddr {
     Register(u8),
@@ -410,6 +486,39 @@ impl Branch {
     }
 }
 
+impl OpRawBranchReg {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Branch(Branch {
+                link: self.l,
+                exchange: true,
+                addr: BranchAddr::Register(self.rn),
+            }),
+        })
+    }
+}
+
+impl OpRawBranchOff {
+    pub fn to_op(&self) -> Option<Op> {
+        let exchange = self.cond == 0b1111;
+        let link = if exchange { true } else { self.l };
+        let offset = if self.offset < 0b100000000000000000000000 {
+            self.offset as i32
+        } else {
+            -((0b1000000000000000000000000 - self.offset) as i32)
+        };
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Branch(Branch {
+                link: link,
+                exchange: exchange,
+                addr: BranchAddr::Offset(offset, self.l),
+            }),
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct SoftInt {
     imm: u32,
@@ -418,6 +527,22 @@ pub struct SoftInt {
 impl SoftInt {
     pub fn asm(&self, _pc: u32) -> Assembly {
         Assembly::new("", "swi", vec![], Args::new(&[Arg::Val(self.imm)]))
+    }
+}
+
+impl OpRawSwi {
+    pub fn to_op(&self) -> Option<Op> {
+        let cond = Cond::from_u8(self.cond).unwrap();
+        // TODO
+        // if cond != Cond::AL {
+        //     return None;
+        // }
+        Some(Op {
+            cond: cond,
+            base: OpBase::SoftInt(SoftInt {
+                imm: self.ignoredby_processor,
+            }),
+        })
     }
 }
 
@@ -475,6 +600,44 @@ impl Multiply {
     }
 }
 
+impl OpRawMultiply {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Multiply(Multiply {
+                acc: if self.a {
+                    Some(MultiplyReg::Reg(self.rn))
+                } else {
+                    None
+                },
+                signed: false,
+                set_cond: self.s,
+                res: MultiplyReg::Reg(self.rd),
+                ops_reg: (self.rm, self.rs),
+            }),
+        })
+    }
+}
+
+impl OpRawMultiplyLong {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Multiply(Multiply {
+                acc: if self.a {
+                    Some(MultiplyReg::RegHiLo(self.rd_hi, self.rd_lo))
+                } else {
+                    None
+                },
+                signed: self.u,
+                set_cond: self.s,
+                res: MultiplyReg::RegHiLo(self.rd_hi, self.rd_lo),
+                ops_reg: (self.rm, self.rs),
+            }),
+        })
+    }
+}
+
 // #[derive(Debug)]
 // pub struct Breakpoint {
 //     comment: (u16, u8),
@@ -484,6 +647,7 @@ impl Multiply {
 pub struct Undefined {
     xxx: (u32, u8),
 }
+
 impl Undefined {
     pub fn asm(&self, _pc: u32) -> Assembly {
         Assembly::new(
@@ -492,6 +656,17 @@ impl Undefined {
             Vec::new(),
             Args::new(&[Arg::Val(self.xxx.0), Arg::Val(self.xxx.1 as u32)]),
         )
+    }
+}
+
+impl OpRawUndefined {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Undefined(Undefined {
+                xxx: (self.xxx, self.yyy),
+            }),
+        })
     }
 }
 
@@ -563,6 +738,49 @@ impl Psr {
             }
         };
         Assembly::new("", mnemonic, vec![], args)
+    }
+}
+
+impl OpRawPsrImm {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Psr(Psr {
+                spsr: self.p,
+                op: PsrOp::Msr(Msr {
+                    f: self.field & 0b1000 != 0,
+                    s: self.field & 0b0100 != 0,
+                    x: self.field & 0b0010 != 0,
+                    c: self.field & 0b0001 != 0,
+                    src: MsrSrc::Immediate(MsrSrcImmediate {
+                        shift: self.shift,
+                        immediate: self.immediate,
+                    }),
+                }),
+            }),
+        })
+    }
+}
+
+impl OpRawPsrReg {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Psr(Psr {
+                spsr: self.p,
+                op: if self.l {
+                    PsrOp::Msr(Msr {
+                        f: self.field & 0b1000 != 0,
+                        s: self.field & 0b0100 != 0,
+                        x: self.field & 0b0010 != 0,
+                        c: self.field & 0b0001 != 0,
+                        src: MsrSrc::Register(self.rm),
+                    })
+                } else {
+                    PsrOp::Mrs(Mrs { rd: self.rd })
+                },
+            }),
+        })
     }
 }
 
@@ -657,6 +875,134 @@ impl Memory {
     }
 }
 
+impl OpRawTransImm9 {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Memory(Memory {
+                add_offset: self.u,
+                pre_post: if self.p {
+                    MemoryPrePost::Pre(self.w)
+                } else {
+                    MemoryPrePost::Post(self.w)
+                },
+                op: if self.l {
+                    MemoryOp::Load
+                } else {
+                    MemoryOp::Store
+                },
+                size: if self.b {
+                    MemorySize::Byte
+                } else {
+                    MemorySize::Word
+                },
+                signed: false,
+                addr: MemoryAddr::Immediate(self.offset),
+                rn: self.rn,
+                rd: self.rd,
+            }),
+        })
+    }
+}
+
+impl OpRawTransReg9 {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Memory(Memory {
+                add_offset: self.u,
+                pre_post: if self.p {
+                    MemoryPrePost::Pre(self.w)
+                } else {
+                    MemoryPrePost::Post(self.w)
+                },
+                op: if self.l {
+                    MemoryOp::Load
+                } else {
+                    MemoryOp::Store
+                },
+                size: if self.b {
+                    MemorySize::Byte
+                } else {
+                    MemorySize::Word
+                },
+                signed: false,
+                addr: MemoryAddr::Register(MemoryAddrReg {
+                    shift: self.shift,
+                    st: ShiftType::from_u8(self.typ).unwrap(),
+                    rm: self.rm,
+                }),
+                rn: self.rn,
+                rd: self.rd,
+            }),
+        })
+    }
+}
+
+impl OpRawTransImm10 {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Memory(Memory {
+                add_offset: self.u,
+                pre_post: if self.p {
+                    MemoryPrePost::Pre(self.w)
+                } else {
+                    MemoryPrePost::Post(false)
+                },
+                op: if self.l {
+                    MemoryOp::Load
+                } else {
+                    MemoryOp::Store
+                },
+                size: if self.h {
+                    MemorySize::Half
+                } else {
+                    MemorySize::Byte
+                },
+                signed: self.s,
+                addr: MemoryAddr::Immediate((self.offset_h << 4 | self.offset_l).into()),
+                rn: self.rn,
+                rd: self.rd,
+            }),
+        })
+    }
+}
+
+impl OpRawTransReg10 {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Memory(Memory {
+                add_offset: self.u,
+                pre_post: if self.p {
+                    MemoryPrePost::Pre(self.w)
+                } else {
+                    MemoryPrePost::Post(false)
+                },
+                op: if self.l {
+                    MemoryOp::Load
+                } else {
+                    MemoryOp::Store
+                },
+                size: if self.h {
+                    MemorySize::Half
+                } else {
+                    MemorySize::Byte
+                },
+                signed: self.s,
+                addr: MemoryAddr::Register(MemoryAddrReg {
+                    rm: self.rm,
+                    st: ShiftType::LSL,
+                    shift: 0,
+                }),
+                rn: self.rn,
+                rd: self.rd,
+            }),
+        })
+    }
+}
+
 // Load, Store Memory
 #[derive(Debug)]
 pub struct MemoryBlock {
@@ -690,6 +1036,29 @@ impl MemoryBlock {
     }
 }
 
+impl OpRawBlockTrans {
+    pub fn to_op(&self) -> Option<Op> {
+        let mut reg_list = [false; 16];
+        (0..16).for_each(|i| reg_list[i] = { self.register_list & (1 << i) != 0 });
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::MemoryBlock(MemoryBlock {
+                pre: self.p,
+                add_offset: self.u,
+                psr_force_user_bit: self.s,
+                write_back: self.w,
+                op: if self.l {
+                    MemoryOp::Load
+                } else {
+                    MemoryOp::Store
+                },
+                rn: self.rn,
+                reg_list: reg_list,
+            }),
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct Swap {
     rn: u8,
@@ -709,300 +1078,42 @@ impl Swap {
     }
 }
 
-#[derive(Debug)]
-pub enum OpBase {
-    Alu(Alu),
-    Branch(Branch),
-    // Breakpoint(Breakpoint),
-    SoftInt(SoftInt),
-    Undefined(Undefined),
-    Multiply(Multiply),
-    Psr(Psr),
-    Memory(Memory),
-    MemoryBlock(MemoryBlock),
-    Swap(Swap),
-}
-
-#[derive(Debug)]
-pub struct Op {
-    cond: Cond,
-    base: OpBase,
+impl OpRawTransSwp12 {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Swap(Swap {
+                rn: self.rn,
+                rd: self.rd,
+                rm: self.rm,
+                byte: self.b,
+            }),
+        })
+    }
 }
 
 impl OpRaw {
     pub fn to_op(&self) -> Option<Op> {
-        let op = match self {
-            OpRaw::DataProcA(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Alu(Alu {
-                    op: AluOp::from_u8(o.op).unwrap(),
-                    s: o.s,
-                    rn: o.rn,
-                    rd: o.rd,
-                    op2: AluOp2::Register(AluOp2Register {
-                        shift: AluOp2RegisterShift::Immediate(o.shift),
-                        st: ShiftType::from_u8(o.typ).unwrap(),
-                        rm: o.rm,
-                    }),
-                }),
-            },
-            OpRaw::DataProcB(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Alu(Alu {
-                    op: AluOp::from_u8(o.op).unwrap(),
-                    s: o.s,
-                    rn: o.rn,
-                    rd: o.rd,
-                    op2: AluOp2::Register(AluOp2Register {
-                        shift: AluOp2RegisterShift::Register(o.rs),
-                        st: ShiftType::from_u8(o.typ).unwrap(),
-                        rm: o.rm,
-                    }),
-                }),
-            },
-            OpRaw::DataProcC(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Alu(Alu {
-                    op: AluOp::from_u8(o.op).unwrap(),
-                    s: o.s,
-                    rn: o.rn,
-                    rd: o.rd,
-                    op2: AluOp2::Immediate(AluOp2Immediate {
-                        shift: o.shift,
-                        immediate: o.immediate,
-                    }),
-                }),
-            },
-            OpRaw::BranchReg(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Branch(Branch {
-                    link: o.l,
-                    exchange: true,
-                    addr: BranchAddr::Register(o.rn),
-                }),
-            },
-            OpRaw::BranchOff(o) => {
-                let exchange = o.cond == 0b1111;
-                let link = if exchange { true } else { o.l };
-                let offset = if o.offset < 0b100000000000000000000000 {
-                    o.offset as i32
-                } else {
-                    -((0b1000000000000000000000000 - o.offset) as i32)
-                };
-                Op {
-                    cond: Cond::from_u8(o.cond).unwrap(),
-                    base: OpBase::Branch(Branch {
-                        link: link,
-                        exchange: exchange,
-                        addr: BranchAddr::Offset(offset, o.l),
-                    }),
-                }
-            }
-            // OpRaw::Bkpt(o) => Op {
-            //     cond: Cond::from_u8(o.cond).unwrap(),
-            //     base: OpBase::Breakpoint(Breakpoint {
-            //         comment: (o.imm_0, o.imm_1),
-            //     }),
-            // },
-            OpRaw::Swi(o) => {
-                let cond = Cond::from_u8(o.cond).unwrap();
-                if cond != Cond::AL {
-                    return None;
-                }
-                Op {
-                    cond: cond,
-                    base: OpBase::SoftInt(SoftInt {
-                        imm: o.ignoredby_processor,
-                    }),
-                }
-            }
-            OpRaw::Undefined(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Undefined(Undefined {
-                    xxx: (o.xxx, o.yyy),
-                }),
-            },
-            OpRaw::Multiply(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Multiply(Multiply {
-                    acc: if o.a {
-                        Some(MultiplyReg::Reg(o.rn))
-                    } else {
-                        None
-                    },
-                    signed: false,
-                    set_cond: o.s,
-                    res: MultiplyReg::Reg(o.rd),
-                    ops_reg: (o.rm, o.rs),
-                }),
-            },
-            OpRaw::MultiplyLong(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Multiply(Multiply {
-                    acc: if o.a {
-                        Some(MultiplyReg::RegHiLo(o.rd_hi, o.rd_lo))
-                    } else {
-                        None
-                    },
-                    signed: o.u,
-                    set_cond: o.s,
-                    res: MultiplyReg::RegHiLo(o.rd_hi, o.rd_lo),
-                    ops_reg: (o.rm, o.rs),
-                }),
-            },
-            OpRaw::PsrImm(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Psr(Psr {
-                    spsr: o.p,
-                    op: PsrOp::Msr(Msr {
-                        f: o.field & 0b1000 != 0,
-                        s: o.field & 0b0100 != 0,
-                        x: o.field & 0b0010 != 0,
-                        c: o.field & 0b0001 != 0,
-                        src: MsrSrc::Immediate(MsrSrcImmediate {
-                            shift: o.shift,
-                            immediate: o.immediate,
-                        }),
-                    }),
-                }),
-            },
-            OpRaw::PsrReg(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Psr(Psr {
-                    spsr: o.p,
-                    op: if o.l {
-                        PsrOp::Msr(Msr {
-                            f: o.field & 0b1000 != 0,
-                            s: o.field & 0b0100 != 0,
-                            x: o.field & 0b0010 != 0,
-                            c: o.field & 0b0001 != 0,
-                            src: MsrSrc::Register(o.rm),
-                        })
-                    } else {
-                        PsrOp::Mrs(Mrs { rd: o.rd })
-                    },
-                }),
-            },
-            OpRaw::TransImm9(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Memory(Memory {
-                    add_offset: o.u,
-                    pre_post: if o.p {
-                        MemoryPrePost::Pre(o.w)
-                    } else {
-                        MemoryPrePost::Post(o.w)
-                    },
-                    op: if o.l { MemoryOp::Load } else { MemoryOp::Store },
-                    size: if o.b {
-                        MemorySize::Byte
-                    } else {
-                        MemorySize::Word
-                    },
-                    signed: false,
-                    addr: MemoryAddr::Immediate(o.offset),
-                    rn: o.rn,
-                    rd: o.rd,
-                }),
-            },
-            OpRaw::TransReg9(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Memory(Memory {
-                    add_offset: o.u,
-                    pre_post: if o.p {
-                        MemoryPrePost::Pre(o.w)
-                    } else {
-                        MemoryPrePost::Post(o.w)
-                    },
-                    op: if o.l { MemoryOp::Load } else { MemoryOp::Store },
-                    size: if o.b {
-                        MemorySize::Byte
-                    } else {
-                        MemorySize::Word
-                    },
-                    signed: false,
-                    addr: MemoryAddr::Register(MemoryAddrReg {
-                        shift: o.shift,
-                        st: ShiftType::from_u8(o.typ).unwrap(),
-                        rm: o.rm,
-                    }),
-                    rn: o.rn,
-                    rd: o.rd,
-                }),
-            },
-            OpRaw::TransImm10(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Memory(Memory {
-                    add_offset: o.u,
-                    pre_post: if o.p {
-                        MemoryPrePost::Pre(o.w)
-                    } else {
-                        MemoryPrePost::Post(false)
-                    },
-                    op: if o.l { MemoryOp::Load } else { MemoryOp::Store },
-                    size: if o.h {
-                        MemorySize::Half
-                    } else {
-                        MemorySize::Byte
-                    },
-                    signed: o.s,
-                    addr: MemoryAddr::Immediate((o.offset_h << 4 | o.offset_l).into()),
-                    rn: o.rn,
-                    rd: o.rd,
-                }),
-            },
-            OpRaw::TransReg10(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Memory(Memory {
-                    add_offset: o.u,
-                    pre_post: if o.p {
-                        MemoryPrePost::Pre(o.w)
-                    } else {
-                        MemoryPrePost::Post(false)
-                    },
-                    op: if o.l { MemoryOp::Load } else { MemoryOp::Store },
-                    size: if o.h {
-                        MemorySize::Half
-                    } else {
-                        MemorySize::Byte
-                    },
-                    signed: o.s,
-                    addr: MemoryAddr::Register(MemoryAddrReg {
-                        rm: o.rm,
-                        st: ShiftType::LSL,
-                        shift: 0,
-                    }),
-                    rn: o.rn,
-                    rd: o.rd,
-                }),
-            },
-            OpRaw::TransSwp12(o) => Op {
-                cond: Cond::from_u8(o.cond).unwrap(),
-                base: OpBase::Swap(Swap {
-                    rn: o.rn,
-                    rd: o.rd,
-                    rm: o.rm,
-                    byte: o.b,
-                }),
-            },
-            OpRaw::BlockTrans(o) => {
-                let mut reg_list = [false; 16];
-                (0..16).for_each(|i| reg_list[i] = { o.register_list & (1 << i) != 0 });
-                Op {
-                    cond: Cond::from_u8(o.cond).unwrap(),
-                    base: OpBase::MemoryBlock(MemoryBlock {
-                        pre: o.p,
-                        add_offset: o.u,
-                        psr_force_user_bit: o.s,
-                        write_back: o.w,
-                        op: if o.l { MemoryOp::Load } else { MemoryOp::Store },
-                        rn: o.rn,
-                        reg_list: reg_list,
-                    }),
-                }
-            }
-            _ => return None,
-        };
-        Some(op)
+        match self {
+            OpRaw::DataProcA(o) => o.to_op(),
+            OpRaw::DataProcB(o) => o.to_op(),
+            OpRaw::DataProcC(o) => o.to_op(),
+            OpRaw::BranchReg(o) => o.to_op(),
+            OpRaw::BranchOff(o) => o.to_op(),
+            OpRaw::Swi(o) => o.to_op(),
+            OpRaw::Undefined(o) => o.to_op(),
+            OpRaw::Multiply(o) => o.to_op(),
+            OpRaw::MultiplyLong(o) => o.to_op(),
+            OpRaw::PsrImm(o) => o.to_op(),
+            OpRaw::PsrReg(o) => o.to_op(),
+            OpRaw::TransImm9(o) => o.to_op(),
+            OpRaw::TransReg9(o) => o.to_op(),
+            OpRaw::TransImm10(o) => o.to_op(),
+            OpRaw::TransReg10(o) => o.to_op(),
+            OpRaw::TransSwp12(o) => o.to_op(),
+            OpRaw::BlockTrans(o) => o.to_op(),
+            _ => None,
+        }
     }
 }
 
@@ -1190,7 +1301,7 @@ mod tests {
             );
         }
         for (word, asm_good, _) in &words_asms {
-            let op_raw = OpRaw::new(*word).unwrap();
+            let op_raw = OpRaw::new(*word);
             let op = op_raw.to_op().unwrap_or(Op {
                 cond: Cond::AL,
                 base: OpBase::Undefined(Undefined { xxx: (0, 0) }),
