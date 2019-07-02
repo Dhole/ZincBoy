@@ -220,6 +220,8 @@ pub enum OpBase {
     Memory(Memory),
     MemoryBlock(MemoryBlock),
     Swap(Swap),
+    CoOp(CoOp),
+    Unknown(Unknown),
 }
 
 #[derive(Debug)]
@@ -1092,6 +1094,64 @@ impl OpRawTransSwp12 {
     }
 }
 
+#[derive(Debug)]
+pub enum CoOp {
+    Todo(u32),
+}
+
+impl CoOp {
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        Assembly::new("", "CoOp(TODO)", vec![], Args::new(&[]))
+    }
+}
+
+impl OpRawCoDataTrans {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::CoOp(CoOp::Todo(0)),
+        })
+    }
+}
+
+impl OpRawCoDataOp {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::CoOp(CoOp::Todo(0)),
+        })
+    }
+}
+
+impl OpRawCoRegTrans {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::CoOp(CoOp::Todo(0)),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum Unknown {
+    Todo(u32),
+}
+
+impl Unknown {
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        Assembly::new("", "Unknown(TODO)", vec![], Args::new(&[]))
+    }
+}
+
+impl OpRawUnknown {
+    pub fn to_op(&self) -> Option<Op> {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: OpBase::Unknown(Unknown::Todo(0)),
+        })
+    }
+}
+
 impl OpRaw {
     pub fn to_op(&self) -> Option<Op> {
         match self {
@@ -1112,7 +1172,10 @@ impl OpRaw {
             OpRaw::TransReg10(o) => o.to_op(),
             OpRaw::TransSwp12(o) => o.to_op(),
             OpRaw::BlockTrans(o) => o.to_op(),
-            _ => None,
+            OpRaw::CoDataTrans(o) => o.to_op(),
+            OpRaw::CoDataOp(o) => o.to_op(),
+            OpRaw::CoRegTrans(o) => o.to_op(),
+            OpRaw::Unknown(o) => o.to_op(),
         }
     }
 }
@@ -1129,6 +1192,8 @@ impl Op {
             OpBase::Memory(op) => op.asm(pc),
             OpBase::Swap(op) => op.asm(pc),
             OpBase::MemoryBlock(op) => op.asm(pc),
+            OpBase::CoOp(op) => op.asm(pc),
+            OpBase::Unknown(op) => op.asm(pc),
             // _ => unreachable!(),
         };
         asm.cond = self.cond;
