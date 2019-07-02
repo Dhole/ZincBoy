@@ -214,14 +214,15 @@ pub enum OpBase {
     Branch(Branch),
     // Breakpoint(Breakpoint),
     SoftInt(SoftInt),
-    Undefined(Undefined),
     Multiply(Multiply),
     Psr(Psr),
     Memory(Memory),
     MemoryBlock(MemoryBlock),
     Swap(Swap),
     CoOp(CoOp),
+    Undefined(Undefined),
     Unknown(Unknown),
+    Invalid(Invalid),
 }
 
 #[derive(Debug)]
@@ -383,23 +384,40 @@ impl Alu {
         }
         Assembly::new("", mnemonic, mode, args)
     }
+    pub fn validate(&self) -> bool {
+        match self.op {
+            AluOp::MOV | AluOp::MVN if self.rn != 0b0000 => false,
+            AluOp::CMP | AluOp::CMN | AluOp::TST | AluOp::TEQ
+                if self.rd != 0b0000 && self.rd != 0b1111 =>
+            {
+                false
+            }
+            _ => true,
+        }
+    }
 }
 
 impl OpRawDataProcA {
     pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Alu(Alu {
-                op: AluOp::from_u8(self.op).unwrap(),
-                s: self.s,
-                rn: self.rn,
-                rd: self.rd,
-                op2: AluOp2::Register(AluOp2Register {
-                    shift: AluOp2RegisterShift::Immediate(self.shift),
-                    st: ShiftType::from_u8(self.typ).unwrap(),
-                    rm: self.rm,
-                }),
+        let cond = Cond::from_u8(self.cond).unwrap();
+        let alu = Alu {
+            op: AluOp::from_u8(self.op).unwrap(),
+            s: self.s,
+            rn: self.rn,
+            rd: self.rd,
+            op2: AluOp2::Register(AluOp2Register {
+                shift: AluOp2RegisterShift::Immediate(self.shift),
+                st: ShiftType::from_u8(self.typ).unwrap(),
+                rm: self.rm,
             }),
+        };
+        Some(Op {
+            cond,
+            base: if alu.validate() {
+                OpBase::Alu(alu)
+            } else {
+                OpBase::Invalid(Invalid::new(0))
+            },
         })
     }
 }
@@ -1133,8 +1151,8 @@ impl OpRawCoRegTrans {
 }
 
 #[derive(Debug)]
-pub enum Unknown {
-    Todo(u32),
+pub struct Unknown {
+    word: u32,
 }
 
 impl Unknown {
@@ -1147,8 +1165,22 @@ impl OpRawUnknown {
     pub fn to_op(&self) -> Option<Op> {
         Some(Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Unknown(Unknown::Todo(0)),
+            base: OpBase::Unknown(Unknown { word: 0 }),
         })
+    }
+}
+
+#[derive(Debug)]
+pub struct Invalid {
+    word: u32,
+}
+
+impl Invalid {
+    pub fn new(word: u32) -> Self {
+        Invalid { word }
+    }
+    pub fn asm(&self, _pc: u32) -> Assembly {
+        Assembly::new("", "invalid", vec![], Args::new(&[]))
     }
 }
 
@@ -1161,7 +1193,6 @@ impl OpRaw {
             OpRaw::BranchReg(o) => o.to_op(),
             OpRaw::BranchOff(o) => o.to_op(),
             OpRaw::Swi(o) => o.to_op(),
-            OpRaw::Undefined(o) => o.to_op(),
             OpRaw::Multiply(o) => o.to_op(),
             OpRaw::MultiplyLong(o) => o.to_op(),
             OpRaw::PsrImm(o) => o.to_op(),
@@ -1175,6 +1206,7 @@ impl OpRaw {
             OpRaw::CoDataTrans(o) => o.to_op(),
             OpRaw::CoDataOp(o) => o.to_op(),
             OpRaw::CoRegTrans(o) => o.to_op(),
+            OpRaw::Undefined(o) => o.to_op(),
             OpRaw::Unknown(o) => o.to_op(),
         }
     }
@@ -1194,7 +1226,7 @@ impl Op {
             OpBase::MemoryBlock(op) => op.asm(pc),
             OpBase::CoOp(op) => op.asm(pc),
             OpBase::Unknown(op) => op.asm(pc),
-            // _ => unreachable!(),
+            OpBase::Invalid(op) => op.asm(pc),
         };
         asm.cond = self.cond;
         asm
