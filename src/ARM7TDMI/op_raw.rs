@@ -384,23 +384,24 @@ impl Alu {
         }
         Assembly::new("", mnemonic, mode, args)
     }
-    pub fn validate(&self) -> bool {
+    pub fn validate(self, word: u32) -> OpBase {
         match self.op {
-            AluOp::MOV | AluOp::MVN if self.rn != 0b0000 => false,
+            AluOp::MOV | AluOp::MVN if self.rn != 0b0000 => OpBase::Invalid(Invalid::new(word)),
             AluOp::CMP | AluOp::CMN | AluOp::TST | AluOp::TEQ
                 if self.rd != 0b0000 && self.rd != 0b1111 =>
             {
-                false
+                OpBase::Invalid(Invalid::new(word))
             }
-            _ => true,
+            _ => OpBase::Alu(self),
         }
     }
 }
 
 impl OpRawDataProcA {
     pub fn to_op(&self) -> Option<Op> {
-        let cond = Cond::from_u8(self.cond).unwrap();
-        let alu = Alu {
+        Some(Op {
+            cond: Cond::from_u8(self.cond).unwrap(),
+            base: Alu {
             op: AluOp::from_u8(self.op).unwrap(),
             s: self.s,
             rn: self.rn,
@@ -410,14 +411,7 @@ impl OpRawDataProcA {
                 st: ShiftType::from_u8(self.typ).unwrap(),
                 rm: self.rm,
             }),
-        };
-        Some(Op {
-            cond,
-            base: if alu.validate() {
-                OpBase::Alu(alu)
-            } else {
-                OpBase::Invalid(Invalid::new(0))
-            },
+        }.validate(self.word),
         })
     }
 }
@@ -426,7 +420,7 @@ impl OpRawDataProcB {
     pub fn to_op(&self) -> Option<Op> {
         Some(Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Alu(Alu {
+            base: Alu {
                 op: AluOp::from_u8(self.op).unwrap(),
                 s: self.s,
                 rn: self.rn,
@@ -436,7 +430,7 @@ impl OpRawDataProcB {
                     st: ShiftType::from_u8(self.typ).unwrap(),
                     rm: self.rm,
                 }),
-            }),
+            }.validate(self.word),
         })
     }
 }
@@ -445,7 +439,7 @@ impl OpRawDataProcC {
     pub fn to_op(&self) -> Option<Op> {
         Some(Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Alu(Alu {
+            base: Alu {
                 op: AluOp::from_u8(self.op).unwrap(),
                 s: self.s,
                 rn: self.rn,
@@ -454,7 +448,7 @@ impl OpRawDataProcC {
                     shift: self.shift,
                     immediate: self.immediate,
                 }),
-            }),
+            }.validate(self.word),
         })
     }
 }
@@ -504,6 +498,8 @@ impl Branch {
         }]);
         Assembly::new("", "b", mode, args)
     }
+    // TODO: According to the spec, Results is undefined behaviour if rn = r15.  Figure out what to
+    // do.
 }
 
 impl OpRawBranchReg {
@@ -1295,13 +1291,19 @@ mod tests {
             (0b1110_000_0110_0_0011_0100_00011_10_0_0101,  "sbc r4, r3, r5, asr 3  ", "DataProc A"),
             (0b1110_000_0111_0_0011_0100_10100_11_0_0101,  "rsc r4, r3, r5, ror 20 ", "DataProc A"),
             (0b1110_000_1000_1_0011_0000_00101_00_0_0101,  "tst r3, r5, lsl 5      ", "DataProc A"),
+            (0b1110_000_1000_1_0011_0001_00101_00_0_0101,  "invalid                ", "DataProc A"),
             (0b1110_000_1001_1_0011_1111_00110_01_0_0101,  "teqp r3, r5, lsr 6     ", "DataProc A"),
+            (0b1110_000_1001_1_0011_0011_00110_01_0_0101,  "invalid                ", "DataProc A"),
             (0b1110_000_1010_1_0011_0000_10111_10_0_0101,  "cmp r3, r5, asr 23     ", "DataProc A"),
+            (0b1110_000_1010_1_0011_0001_10111_10_0_0101,  "invalid                ", "DataProc A"),
             (0b1110_000_1011_1_0011_1111_01000_11_0_0101,  "cmnp r3, r5, ror 8     ", "DataProc A"),
+            (0b1110_000_1011_1_0011_0001_01000_11_0_0101,  "invalid                ", "DataProc A"),
             (0b1110_000_1100_0_0011_0100_01001_00_0_0101,  "orr r4, r3, r5, lsl 9  ", "DataProc A"),
             (0b1110_000_1101_1_0000_0100_11010_01_0_0101,  "movs r4, r5, lsr 26    ", "DataProc A"),
+            (0b1110_000_1101_1_0001_0100_11010_01_0_0101,  "invalid                ", "DataProc A"),
             (0b1110_000_1110_0_0011_0100_01101_10_0_0101,  "bic r4, r3, r5, asr 13 ", "DataProc A"),
             (0b1110_000_1111_1_0000_0100_11101_11_0_0101,  "mvns r4, r5, ror 29    ", "DataProc A"),
+            (0b1110_000_1111_1_0001_0100_11101_11_0_0101,  "invalid                ", "DataProc A"),
             //          Op   S Rn   Rd   Rs     St   Rm
             (0b1110_000_0000_0_0011_0100_0000_0_00_1_0101,  "and r4, r3, r5, lsl r0 ", "DataProc B"),
             (0b1110_000_0001_1_0011_0100_0000_0_01_1_0101,  "eors r4, r3, r5, lsr r0", "DataProc B"),

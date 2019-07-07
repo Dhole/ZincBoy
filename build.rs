@@ -142,8 +142,9 @@ fn main() -> Result<(), io::Error> {
         let op_name = format!("op_raw_{}", op_name).to_pascal_case();
         write!(f, "#[derive(Debug)]\n")?;
         write!(f, "pub struct {} {{\n", op_name)?;
+        write!(f, "  word: u32,\n")?;
         for param in &op.params {
-            write!( f, "  {}: {},\n",
+            write!(f, "  {}: {},\n",
                 param.name,
                 match param.typ() {
                     ParamType::Bool => "bool",
@@ -159,6 +160,7 @@ fn main() -> Result<(), io::Error> {
         write!(f, "  pub fn new(v: u32) -> Self {{\n")?;
         write!(f, "    Self {{\n")?;
         let max_len = op.params.iter().max_by_key(|p| p.name.len()).unwrap().name.len();
+        write!(f, "      {0:<max_len$}: v,\n", "word", max_len = max_len)?;
         for param in &op.params {
             let mask = (param.start..param.end+1).map(|i| 1 << i).fold(0, |acc, x| acc+x);
             write!(f, "      {0:<max_len$}: ((v & 0b{1:032b}) >> {2:2}) {3},\n",
