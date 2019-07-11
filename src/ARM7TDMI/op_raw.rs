@@ -398,8 +398,8 @@ impl Alu {
 }
 
 impl OpRawDataProcA {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
             base: Alu {
             op: AluOp::from_u8(self.op).unwrap(),
@@ -412,13 +412,13 @@ impl OpRawDataProcA {
                 rm: self.rm,
             }),
         }.validate(self.word),
-        })
+        }
     }
 }
 
 impl OpRawDataProcB {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
             base: Alu {
                 op: AluOp::from_u8(self.op).unwrap(),
@@ -431,13 +431,13 @@ impl OpRawDataProcB {
                     rm: self.rm,
                 }),
             }.validate(self.word),
-        })
+        }
     }
 }
 
 impl OpRawDataProcC {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
             base: Alu {
                 op: AluOp::from_u8(self.op).unwrap(),
@@ -449,7 +449,7 @@ impl OpRawDataProcC {
                     immediate: self.immediate,
                 }),
             }.validate(self.word),
-        })
+        }
     }
 }
 
@@ -498,25 +498,26 @@ impl Branch {
         }]);
         Assembly::new("", "b", mode, args)
     }
+    pub fn validate(self, _word: u32) -> OpBase { OpBase::Branch(self) }
     // TODO: According to the spec, Results is undefined behaviour if rn = r15.  Figure out what to
     // do.
 }
 
 impl OpRawBranchReg {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Branch(Branch {
+            base: Branch {
                 link: self.l,
                 exchange: true,
                 addr: BranchAddr::Register(self.rn),
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
 impl OpRawBranchOff {
-    pub fn to_op(&self) -> Option<Op> {
+    pub fn to_op(&self) -> Op {
         let exchange = self.cond == 0b1111;
         let link = if exchange { true } else { self.l };
         let offset = if self.offset < 0b100000000000000000000000 {
@@ -524,14 +525,14 @@ impl OpRawBranchOff {
         } else {
             -((0b1000000000000000000000000 - self.offset) as i32)
         };
-        Some(Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Branch(Branch {
+            base: Branch {
                 link: link,
                 exchange: exchange,
                 addr: BranchAddr::Offset(offset, self.l),
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
@@ -544,21 +545,22 @@ impl SoftInt {
     pub fn asm(&self, _pc: u32) -> Assembly {
         Assembly::new("", "swi", vec![], Args::new(&[Arg::Val(self.imm)]))
     }
+    pub fn validate(self, _word: u32) -> OpBase { OpBase::SoftInt(self) }
 }
 
 impl OpRawSwi {
-    pub fn to_op(&self) -> Option<Op> {
+    pub fn to_op(&self) -> Op {
         let cond = Cond::from_u8(self.cond).unwrap();
         // TODO
         // if cond != Cond::AL {
         //     return None;
         // }
-        Some(Op {
+        Op {
             cond: cond,
-            base: OpBase::SoftInt(SoftInt {
+            base: SoftInt {
                 imm: self.ignoredby_processor,
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
@@ -614,13 +616,14 @@ impl Multiply {
         }
         Assembly::new(pre, mnemonic, mode, args)
     }
+    pub fn validate(self, _word: u32) -> OpBase { OpBase::Multiply(self) }
 }
 
 impl OpRawMultiply {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Multiply(Multiply {
+            base: Multiply {
                 acc: if self.a {
                     Some(MultiplyReg::Reg(self.rn))
                 } else {
@@ -630,16 +633,16 @@ impl OpRawMultiply {
                 set_cond: self.s,
                 res: MultiplyReg::Reg(self.rd),
                 ops_reg: (self.rm, self.rs),
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
 impl OpRawMultiplyLong {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Multiply(Multiply {
+            base: Multiply {
                 acc: if self.a {
                     Some(MultiplyReg::RegHiLo(self.rd_hi, self.rd_lo))
                 } else {
@@ -649,8 +652,8 @@ impl OpRawMultiplyLong {
                 set_cond: self.s,
                 res: MultiplyReg::RegHiLo(self.rd_hi, self.rd_lo),
                 ops_reg: (self.rm, self.rs),
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
@@ -676,20 +679,20 @@ impl Undefined {
 }
 
 impl OpRawUndefined {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
             base: OpBase::Undefined(Undefined {
                 xxx: (self.xxx, self.yyy),
             }),
-        })
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct MsrSrcImmediate {
     shift: u8,
-    immediate: u8,
+    immediate: u32,
 }
 
 #[derive(Debug)]
@@ -747,7 +750,7 @@ impl Psr {
                 Args::new(&[
                     Arg::StatusReg(status_reg, Some(fields)),
                     match &msr.src {
-                        MsrSrc::Immediate(imm) => Arg::Val((imm.immediate as u32) << imm.shift * 2),
+                        MsrSrc::Immediate(imm) => Arg::Val(imm.immediate.rotate_right((imm.shift * 2) as u32)),
                         MsrSrc::Register(rd) => Arg::Reg(*rd),
                     },
                 ])
@@ -755,13 +758,26 @@ impl Psr {
         };
         Assembly::new("", mnemonic, vec![], args)
     }
+    pub fn validate(self, word: u32) -> OpBase {
+        match &self.op {
+            PsrOp::Msr(msr) => {
+                if !msr.f && !msr.s && !msr.x && !msr.c {
+                    // TODO: Figure out if this configuration is invalid or just a NOP
+                    OpBase::Invalid(Invalid::new(word))
+                } else {
+                    OpBase::Psr(self)
+                }
+            },
+            _ => OpBase::Psr(self),
+        }
+    }
 }
 
 impl OpRawPsrImm {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Psr(Psr {
+            base: Psr {
                 spsr: self.p,
                 op: PsrOp::Msr(Msr {
                     f: self.field & 0b1000 != 0,
@@ -770,33 +786,37 @@ impl OpRawPsrImm {
                     c: self.field & 0b0001 != 0,
                     src: MsrSrc::Immediate(MsrSrcImmediate {
                         shift: self.shift,
-                        immediate: self.immediate,
+                        immediate: self.immediate as u32,
                     }),
                 }),
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
 impl OpRawPsrReg {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        let psr = Psr {
+            spsr: self.p,
+            op: if self.l {
+                PsrOp::Msr(Msr {
+                    f: self.field & 0b1000 != 0,
+                    s: self.field & 0b0100 != 0,
+                    x: self.field & 0b0010 != 0,
+                    c: self.field & 0b0001 != 0,
+                    src: MsrSrc::Register(self.rm),
+                })
+            } else {
+                PsrOp::Mrs(Mrs { rd: self.rd })
+            },
+        };
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Psr(Psr {
-                spsr: self.p,
-                op: if self.l {
-                    PsrOp::Msr(Msr {
-                        f: self.field & 0b1000 != 0,
-                        s: self.field & 0b0100 != 0,
-                        x: self.field & 0b0010 != 0,
-                        c: self.field & 0b0001 != 0,
-                        src: MsrSrc::Register(self.rm),
-                    })
-                } else {
-                    PsrOp::Mrs(Mrs { rd: self.rd })
-                },
-            }),
-        })
+            base: match &psr.op {
+                PsrOp::Mrs(_) if self.field != 0b1111 => OpBase::Invalid(Invalid::new(self.word)),
+                _ => psr.validate(self.word),
+            }
+        }
     }
 }
 
@@ -889,13 +909,24 @@ impl Memory {
         }
         Assembly::new("", mnemonic, mode, args)
     }
+    pub fn validate(self, word: u32) -> OpBase {
+        if self.rn == self.rd {
+            return OpBase::Invalid(Invalid{word});
+        }
+        if let MemoryAddr::Register(reg) = &self.addr {
+            if self.rn == reg.rm {
+                return OpBase::Invalid(Invalid{word});
+            }
+        }
+        OpBase::Memory(self)
+    }
 }
 
 impl OpRawTransImm9 {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Memory(Memory {
+            base: Memory {
                 add_offset: self.u,
                 pre_post: if self.p {
                     MemoryPrePost::Pre(self.w)
@@ -916,16 +947,16 @@ impl OpRawTransImm9 {
                 addr: MemoryAddr::Immediate(self.offset),
                 rn: self.rn,
                 rd: self.rd,
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
 impl OpRawTransReg9 {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Memory(Memory {
+            base: Memory {
                 add_offset: self.u,
                 pre_post: if self.p {
                     MemoryPrePost::Pre(self.w)
@@ -950,16 +981,16 @@ impl OpRawTransReg9 {
                 }),
                 rn: self.rn,
                 rd: self.rd,
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
 impl OpRawTransImm10 {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Memory(Memory {
+            base: Memory {
                 add_offset: self.u,
                 pre_post: if self.p {
                     MemoryPrePost::Pre(self.w)
@@ -980,16 +1011,16 @@ impl OpRawTransImm10 {
                 addr: MemoryAddr::Immediate((self.offset_h << 4 | self.offset_l).into()),
                 rn: self.rn,
                 rd: self.rd,
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
 impl OpRawTransReg10 {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Memory(Memory {
+            base: Memory {
                 add_offset: self.u,
                 pre_post: if self.p {
                     MemoryPrePost::Pre(self.w)
@@ -1014,8 +1045,8 @@ impl OpRawTransReg10 {
                 }),
                 rn: self.rn,
                 rd: self.rd,
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
@@ -1050,15 +1081,22 @@ impl MemoryBlock {
         let args = Args::new(&[arg0, Arg::RegList(self.reg_list, self.psr_force_user_bit)]);
         Assembly::new("", mnemonic, mode, args)
     }
+    pub fn validate(self, word: u32) -> OpBase {
+        if self.rn == 15 {
+            OpBase::Invalid(Invalid{word})
+        } else {
+            OpBase::MemoryBlock(self)
+        }
+    }
 }
 
 impl OpRawBlockTrans {
-    pub fn to_op(&self) -> Option<Op> {
+    pub fn to_op(&self) -> Op {
         let mut reg_list = [false; 16];
         (0..16).for_each(|i| reg_list[i] = { self.register_list & (1 << i) != 0 });
-        Some(Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::MemoryBlock(MemoryBlock {
+            base: MemoryBlock {
                 pre: self.p,
                 add_offset: self.u,
                 psr_force_user_bit: self.s,
@@ -1070,8 +1108,9 @@ impl OpRawBlockTrans {
                 },
                 rn: self.rn,
                 reg_list: reg_list,
-            }),
-        })
+            }.validate(self.word),
+        }
+        // TODO: Handle Strange Effects on Invalid Rlist's (gbatek.txt:50409)
     }
 }
 
@@ -1092,19 +1131,26 @@ impl Swap {
         ]);
         Assembly::new("", "swp", if self.byte { vec!["b"] } else { vec![] }, args)
     }
+    pub fn validate(self, word: u32) -> OpBase {
+        if self.rn == 15 || self.rd == 15 || self.rm == 15 {
+            OpBase::Invalid(Invalid{word})
+        } else {
+            OpBase::Swap(self)
+        }
+    }
 }
 
 impl OpRawTransSwp12 {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Swap(Swap {
+            base: Swap {
                 rn: self.rn,
                 rd: self.rd,
                 rm: self.rm,
                 byte: self.b,
-            }),
-        })
+            }.validate(self.word),
+        }
     }
 }
 
@@ -1117,32 +1163,33 @@ impl CoOp {
     pub fn asm(&self, _pc: u32) -> Assembly {
         Assembly::new("", "CoOp(TODO)", vec![], Args::new(&[]))
     }
+    pub fn validate(self, _word: u32) -> OpBase { OpBase::CoOp(self) }
 }
 
 impl OpRawCoDataTrans {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::CoOp(CoOp::Todo(0)),
-        })
+            base: CoOp::Todo(self.word).validate(self.word),
+        }
     }
 }
 
 impl OpRawCoDataOp {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::CoOp(CoOp::Todo(0)),
-        })
+            base: CoOp::Todo(self.word).validate(self.word),
+        }
     }
 }
 
 impl OpRawCoRegTrans {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::CoOp(CoOp::Todo(0)),
-        })
+            base: CoOp::Todo(self.word).validate(self.word),
+        }
     }
 }
 
@@ -1158,11 +1205,11 @@ impl Unknown {
 }
 
 impl OpRawUnknown {
-    pub fn to_op(&self) -> Option<Op> {
-        Some(Op {
+    pub fn to_op(&self) -> Op {
+        Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Unknown(Unknown { word: 0 }),
-        })
+            base: OpBase::Unknown(Unknown { word: self.word }),
+        }
     }
 }
 
@@ -1181,7 +1228,7 @@ impl Invalid {
 }
 
 impl OpRaw {
-    pub fn to_op(&self) -> Option<Op> {
+    pub fn to_op(&self) -> Op {
         match self {
             OpRaw::DataProcA(o) => o.to_op(),
             OpRaw::DataProcB(o) => o.to_op(),
@@ -1277,10 +1324,22 @@ mod tests {
             (0b1110_00001_1_1_0_0011_0100_0101_1001_0110, "smlal r4, r3, r6, r5 ", "MulLong"),
             (0b1110_00001_1_1_1_0011_0100_0101_1001_0110, "smlals r4, r3, r6, r5", "MulLong"),
             //            P L   Fiel Rd            Rm
-            (0b1110_00010_0_0_0_1111_0011_00000000_0100,  "mrs r3, cpsr", "PSR Reg   "),
-            (0b1110_00010_1_0_0_1111_0011_00000000_0100,  "mrs r3, spsr", "PSR Reg   "),
+            (0b1110_00010_0_0_0_1111_0011_00000000_0100,  "mrs r3, cpsr   ", "PSR Reg"),
+            (0b1110_00010_1_0_0_1111_0011_00000000_0100,  "mrs r3, spsr   ", "PSR Reg"),
             (0b1110_00010_0_1_0_1010_1111_00000000_0011,  "msr cpsr_fx, r3", "PSR Reg"),
             (0b1110_00010_1_1_0_0101_1111_00000000_0100,  "msr spsr_sc, r4", "PSR Reg"),
+            (0b1110_00010_1_0_0_0111_0011_00000000_0100,  "invalid        ", "PSR Reg"),
+            (0b1110_00010_0_1_0_0000_1111_00000000_0011,  "invalid        ", "PSR Reg"),
+            //            P    Fiel      Shif Imm
+            (0b1110_00110_0_10_0001_1111_0000_00000000,  "msr cpsr_c, 0            ", "PSR Imm"),
+            (0b1110_00110_0_10_0010_1111_0001_00000001,  "msr cpsr_x, 0x40000000   ", "PSR Imm"),
+            (0b1110_00110_0_10_1111_1111_0001_01000001,  "msr cpsr_fsxc, 0x40000010", "PSR Imm"),
+            (0b1110_00110_1_10_0100_1111_0011_00000010,  "msr spsr_s, 0x8000000    ", "PSR Imm"),
+            (0b1110_00110_1_10_1000_1111_0010_00000110,  "msr spsr_f, 0x60000000   ", "PSR Imm"),
+            (0b1110_00110_1_10_0110_1111_0101_01010010,  "msr spsr_sx, 0x14800000  ", "PSR Imm"),
+            (0b1110_00110_1_10_0101_1111_1010_11000010,  "msr spsr_sc, 0xc2000     ", "PSR Imm"),
+            (0b1110_00110_0_10_0000_1111_0001_00000001,  "invalid                  ", "PSR Imm"),
+            (0b1110_00110_1_10_0000_1111_0011_00000010,  "invalid                  ", "PSR Imm"),
             //          Op   S Rn   Rd   Shift St   Rm
             (0b1110_000_0000_0_0011_0100_00000_00_0_0101,  "and r4, r3, r5         ", "DataProc A"),
             (0b1110_000_0001_1_0011_0100_00000_01_0_0101,  "eors r4, r3, r5, lsr 32", "DataProc A"),
@@ -1331,6 +1390,7 @@ mod tests {
             (0b1110_010_0_1_1_1_1_0100_0101_000011011011,  "ldrbt r5, [r4], 0xdb ", "TransImm9"),
             (0b1110_010_1_0_0_0_1_0100_0101_100000000000,  "ldr r5, [r4, -0x800] ", "TransImm9"),
             (0b1110_010_0_0_1_0_1_0100_0101_100111001001,  "ldrb r5, [r4], -0x9c9", "TransImm9"),
+            (0b1110_010_0_0_1_0_1_0100_0100_100111001001,  "invalid              ", "TransImm9"),
             //          P U B W L Rn   Rd   Shift St   Rm
             (0b1110_011_0_0_0_0_0_0100_0101_00000_00_0_0110,  "str r5, [r4], -r6         ", "TransReg9"),
             (0b1110_011_0_1_0_1_0_0100_0101_00001_01_0_0110,  "strt r5, [r4], r6, lsr 1  ", "TransReg9"),
@@ -1340,6 +1400,8 @@ mod tests {
             (0b1110_011_0_1_1_1_1_0100_0101_10100_01_0_0110,  "ldrbt r5, [r4], r6, lsr 20", "TransReg9"),
             (0b1110_011_1_0_0_0_1_0100_0101_01010_10_0_0110,  "ldr r5, [r4, -r6, asr 10] ", "TransReg9"),
             (0b1110_011_0_0_1_0_1_0100_0101_00100_11_0_0110,  "ldrb r5, [r4], -r6, ror 4 ", "TransReg9"),
+            (0b1110_011_0_0_1_0_1_0100_0100_00100_11_0_0110,  "invalid                   ", "TransReg9"),
+            (0b1110_011_0_0_1_0_1_0100_0101_00100_11_0_0100,  "invalid                   ", "TransReg9"),
             //          P U   W L Rn   Rd   OffH   S H   OffL
             (0b1110_000_0_0_1_0_0_0100_0101_0000_1_0_1_1_0000,  "strh r5, [r4], -0   ", "TransImm10"),
             (0b1110_000_0_1_1_0_0_0100_0101_0000_1_0_1_1_0011,  "strh r5, [r4], 3    ", "TransImm10"),
@@ -1349,6 +1411,7 @@ mod tests {
             (0b1110_000_0_1_1_0_1_0100_0101_0010_1_1_0_1_0111,  "ldrsb r5, [r4], 39  ", "TransImm10"),
             (0b1110_000_1_0_1_0_1_0100_0101_0000_1_1_1_1_0011,  "ldrsh r5, [r4, -3]  ", "TransImm10"),
             (0b1110_000_1_1_1_0_1_0100_0101_1100_1_0_1_1_1100,  "ldrh r5, [r4, 0xcc] ", "TransImm10"),
+            (0b1110_000_1_1_1_0_1_0100_0100_1100_1_0_1_1_1100,  "invalid             ", "TransImm10"),
             //          P U   W L Rn   Rd         S H   Rm
             (0b1110_000_0_0_0_0_0_0100_0101_00001_0_1_1_0110,  "strh r5, [r4], -r6 ", "TransReg10"),
             (0b1110_000_0_1_0_0_0_0100_0101_00001_0_1_1_0110,  "strh r5, [r4], r6  ", "TransReg10"),
@@ -1358,11 +1421,16 @@ mod tests {
             (0b1110_000_0_1_0_0_1_0100_0101_00001_1_0_1_0110,  "ldrsb r5, [r4], r6 ", "TransReg10"),
             (0b1110_000_1_0_0_0_1_0100_0101_00001_1_1_1_0110,  "ldrsh r5, [r4, -r6]", "TransReg10"),
             (0b1110_000_1_1_0_1_1_0100_0101_00001_0_1_1_0110,  "ldrh r5, [r4, r6]! ", "TransReg10"),
+            (0b1110_000_1_1_0_1_1_0100_0100_00001_0_1_1_0110,  "invalid            ", "TransReg10"),
+            (0b1110_000_1_1_0_1_1_0100_0101_00001_0_1_1_0100,  "invalid            ", "TransReg10"),
             //          Xxx                    Yyy
             (0b1110_011_00000000000000000000_1_0000,  "undefined 0, 0", "Undefined"),
-            //          Xxx                    Yyy
+            //            B    Rn   Rd            Rm
             (0b1110_00010_0_00_0011_0100_00001001_0101,  "swp r4, r5, [r3] ", "TransSwp12"),
             (0b1110_00010_1_00_0011_0100_00001001_0101,  "swpb r4, r5, [r3]", "TransSwp12"),
+            (0b1110_00010_1_00_1111_0100_00001001_0101,  "invalid          ", "TransSwp12"),
+            (0b1110_00010_1_00_0011_1111_00001001_0101,  "invalid          ", "TransSwp12"),
+            (0b1110_00010_1_00_0011_0100_00001001_1111,  "invalid          ", "TransSwp12"),
             //          P U S W L Rn   RegisterList
             (0b1110_100_0_0_0_0_0_0100_0000000000000001,  "stmda r4, {r0}                        ", "BlockTrans"),
             (0b1110_100_0_0_0_1_0_0100_0000000000000011,  "stmda r4!, {r0, r1}                   ", "BlockTrans"),
@@ -1389,6 +1457,7 @@ mod tests {
             (0b1110_100_0_1_1_0_1_0100_1111111111111111,
                     "ldm r4, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15} ^", "BlockTrans"),
             (0b1110_100_0_1_1_1_1_0100_0001000100010000,  "ldm r4!, {r4, r8, r12} ^              ", "BlockTrans"),
+            (0b1110_100_0_1_0_0_1_1111_0000000101010000,  "invalid                  ", "BlockTrans"),
         ];
         println!("# Radare disasm");
         for (word, _, desc) in &words_asms {
@@ -1401,10 +1470,7 @@ mod tests {
         }
         for (word, asm_good, _) in &words_asms {
             let op_raw = OpRaw::new(*word);
-            let op = op_raw.to_op().unwrap_or(Op {
-                cond: Cond::AL,
-                base: OpBase::Undefined(Undefined { xxx: (0, 0) }),
-            });
+            let op = op_raw.to_op();
             let asm = op.asm(pc);
             println!(
                 "{:08x}: {:08x} {} {:?}| {:?} - {:?}",

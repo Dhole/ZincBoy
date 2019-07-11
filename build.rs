@@ -84,7 +84,7 @@ fn main() -> Result<(), io::Error> {
     "trans_reg_9"   => ("|_Cond__|0_1_1|P|U|B|W|L|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // TransReg9 *
     // "multiply_half" => "|_Cond__|0_0_0_1_0|Op_|0|Rd_RdHi|Rn_RdLo|__Rs___|1|y|x|0|__Rm___|", 1),  // MulHalfARM9
     "psr_reg"       => ("|_Cond__|0_0_0_1_0|P|L|0|_Field_|__Rd___|0_0_0_0|0_0_0_0|__Rm___|", 0),  // PSR Reg *
-    "psr_imm"       => ("|_Cond__|0_0_1_1_0|P|1|0|_Field_|__Rd___|_Shift_|___Immediate___|", 1),  // PSR Imm *
+    "psr_imm"       => ("|_Cond__|0_0_1_1_0|P|1|0|_Field_|1_1_1_1|_Shift_|___Immediate___|", 0),  // PSR Imm *
     "undefined"     => ("|_Cond__|0_1_1|________________xxx____________________|1|__yyy__|", 1),  // Undefined *
     "block_trans"   => ("|_Cond__|1_0_0|P|U|S|W|L|__Rn___|__________Register_List________|", 1),  // BlockTrans *
     "branch_off"    => ("|_Cond__|1_0_1|L|___________________Offset______________________|", 1),  // B,BL,BLX *

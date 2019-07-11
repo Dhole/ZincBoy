@@ -21,7 +21,7 @@ fn main() -> Result<(), io::Error> {
         }
         let word = u32::from_le_bytes(*array_ref![data, i, 4]);
         let op_raw = OpRaw::new(word);
-        let op = op_raw.to_op().unwrap();
+        let op = op_raw.to_op();
         // println!("{:08x}: {:08x} {:?}", i, word.to_be(), op.to_op());
         println!(
             "{:08x}: {:08x} {} | {:?}",
