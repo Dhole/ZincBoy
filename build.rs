@@ -59,42 +59,7 @@ fn bitarray2string(arr: [u32; 32]) -> String {
         })
 }
 
-#[rustfmt::skip]
-fn main() -> Result<(), io::Error> {
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("op_raw.rs");
-    let mut f = File::create(&dest_path).unwrap();
-
-    let ops_desc = hashmap! {
-    //                   |..3 ..................2 ..................1 ..................0|
-    //                   |1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0|
-    "branch_reg"    => ("|_Cond__|0_0_0_1_0_0_1_0_1_1_1_1_1_1_1_1_1_1_1_1|0_0|L|1|__Rn___|", 0),  // BX,BLX *
-    // "bkpt"       => ("|1_1_1_0|0_0_0_1_0_0_1_0|________imm0___________|0_1_1_1|__imm1_|", 1),  // ARM9:BKPT
-    // "clz"        => ("|_Cond__|0_0_0_1_0_1_1_0_1_1_1_1|__Rd___|1_1_1_1|0_0_0_1|__Rm___|", 1),  // ARM9:CLZ
-    "multiply"      => ("|_Cond__|0_0_0_0_0_0|A|S|__Rd___|__Rn___|__Rs___|1_0_0_1|__Rm___|", 1),  // Multiply *
-    "multiply_long" => ("|_Cond__|0_0_0_0_1|U|A|S|_RdHi__|_RdLo__|__Rs___|1_0_0_1|__Rm___|", 0),  // MulLong *
-    // "qalu"       => ("|_Cond__|0_0_0_1_0|Op_|0|__Rn___|__Rd___|0_0_0_0|0_1_0_1|__Rm___|", 1),  // ARM9:QALU
-    "trans_swp_12"  => ("|_Cond__|0_0_0_1_0|B|0_0|__Rn___|__Rd___|0_0_0_0|1_0_0_1|__Rm___|", 0),  // TransSwp12 *
-    "data_proc_a"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // DataProc *
-    "data_proc_b"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Rs___|0|Typ|1|__Rm___|", 1),  // DataProc *
-    "data_proc_c"   => ("|_Cond__|0_0_1|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|", 1),  // DataProc *
-    "trans_imm_10"  => ("|_Cond__|0_0_0|P|U|1|W|L|__Rn___|__Rd___|OffsetH|1|S|H|1|OffsetL|", 1),  // TransImm10 *
-    "trans_reg_10"  => ("|_Cond__|0_0_0|P|U|0|W|L|__Rn___|__Rd___|0_0_0_0|1|S|H|1|__Rm___|", 1),  // TransReg10 *
-    "trans_imm_9"   => ("|_Cond__|0_1_0|P|U|B|W|L|__Rn___|__Rd___|_________Offset________|", 1),  // TransImm9 *
-    "trans_reg_9"   => ("|_Cond__|0_1_1|P|U|B|W|L|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // TransReg9 *
-    // "multiply_half" => "|_Cond__|0_0_0_1_0|Op_|0|Rd_RdHi|Rn_RdLo|__Rs___|1|y|x|0|__Rm___|", 1),  // MulHalfARM9
-    "psr_reg"       => ("|_Cond__|0_0_0_1_0|P|L|0|_Field_|__Rd___|0_0_0_0|0_0_0_0|__Rm___|", 0),  // PSR Reg *
-    "psr_imm"       => ("|_Cond__|0_0_1_1_0|P|1|0|_Field_|1_1_1_1|_Shift_|___Immediate___|", 0),  // PSR Imm *
-    "undefined"     => ("|_Cond__|0_1_1|________________xxx____________________|1|__yyy__|", 1),  // Undefined *
-    "block_trans"   => ("|_Cond__|1_0_0|P|U|S|W|L|__Rn___|__________Register_List________|", 1),  // BlockTrans *
-    "branch_off"    => ("|_Cond__|1_0_1|L|___________________Offset______________________|", 1),  // B,BL,BLX *
-    // "co_rr"      => ("|_Cond__|1_1_0_0_0_1_0|L|__Rn___|__Rd___|__CPN__|_CPopc_|__CRm__|", 1),  // CoRR ARM9
-    "co_data_trans" => ("|_Cond__|1_1_0|P|U|N|W|L|__Rn___|__CRd__|__CPN__|____Offset_____|", 1),  // CoDataTrans
-    "co_data_op"    => ("|_Cond__|1_1_1_0|_CPopc_|__CRn__|__CRd__|__CPN__|_CP__|0|__CRm__|", 1),  // CoDataOp
-    "co_reg_trans"  => ("|_Cond__|1_1_1_0|CPopc|L|__CRn__|__Rd___|__CPN__|_CP__|1|__CRm__|", 1),  // CoRegTrans
-    "swi"           => ("|_Cond__|1_1_1_1|_____________Ignored_by_Processor______________|", 1),  // SWI *
-    };
-
+fn gen_op_parser(f: &mut File, ops_desc: &HashMap<&str, (&str, u64)>) -> Result<(), io::Error> {
     let mut ops = HashMap::new();
     for (op, (desc, priority)) in ops_desc.iter() {
         let elems: Vec<&str> = desc.split_at(1).1.split("|").collect();
@@ -266,4 +231,68 @@ fn main() -> Result<(), io::Error> {
     // write!(f, "}}\n")?;
 
     Ok(())
+}
+
+#[rustfmt::skip]
+fn main() -> Result<(), io::Error> {
+    let out_dir = env::var("OUT_DIR").unwrap();
+
+    let dest_path = Path::new(&out_dir).join("op_raw.rs");
+    let mut f = File::create(&dest_path).unwrap();
+
+    let ops_desc = hashmap! {
+    //                   |..3 ..................2 ..................1 ..................0|
+    //                   |1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0|
+    "branch_reg"    => ("|_Cond__|0_0_0_1_0_0_1_0_1_1_1_1_1_1_1_1_1_1_1_1|0_0|L|1|__Rn___|", 0),  // BX,BLX *
+    "multiply"      => ("|_Cond__|0_0_0_0_0_0|A|S|__Rd___|__Rn___|__Rs___|1_0_0_1|__Rm___|", 1),  // Multiply *
+    "multiply_long" => ("|_Cond__|0_0_0_0_1|U|A|S|_RdHi__|_RdLo__|__Rs___|1_0_0_1|__Rm___|", 0),  // MulLong *
+    "trans_swp_12"  => ("|_Cond__|0_0_0_1_0|B|0_0|__Rn___|__Rd___|0_0_0_0|1_0_0_1|__Rm___|", 0),  // TransSwp12 *
+    "data_proc_a"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // DataProc *
+    "data_proc_b"   => ("|_Cond__|0_0_0|___Op__|S|__Rn___|__Rd___|__Rs___|0|Typ|1|__Rm___|", 1),  // DataProc *
+    "data_proc_c"   => ("|_Cond__|0_0_1|___Op__|S|__Rn___|__Rd___|_Shift_|___Immediate___|", 1),  // DataProc *
+    "trans_imm_10"  => ("|_Cond__|0_0_0|P|U|1|W|L|__Rn___|__Rd___|OffsetH|1|S|H|1|OffsetL|", 1),  // TransImm10 *
+    "trans_reg_10"  => ("|_Cond__|0_0_0|P|U|0|W|L|__Rn___|__Rd___|0_0_0_0|1|S|H|1|__Rm___|", 1),  // TransReg10 *
+    "trans_imm_9"   => ("|_Cond__|0_1_0|P|U|B|W|L|__Rn___|__Rd___|_________Offset________|", 1),  // TransImm9 *
+    "trans_reg_9"   => ("|_Cond__|0_1_1|P|U|B|W|L|__Rn___|__Rd___|__Shift__|Typ|0|__Rm___|", 1),  // TransReg9 *
+    "psr_reg"       => ("|_Cond__|0_0_0_1_0|P|L|0|_Field_|__Rd___|0_0_0_0|0_0_0_0|__Rm___|", 0),  // PSR Reg *
+    "psr_imm"       => ("|_Cond__|0_0_1_1_0|P|1|0|_Field_|1_1_1_1|_Shift_|___Immediate___|", 0),  // PSR Imm *
+    "undefined"     => ("|_Cond__|0_1_1|________________xxx____________________|1|__yyy__|", 1),  // Undefined *
+    "block_trans"   => ("|_Cond__|1_0_0|P|U|S|W|L|__Rn___|__________Register_List________|", 1),  // BlockTrans *
+    "branch_off"    => ("|_Cond__|1_0_1|L|___________________Offset______________________|", 1),  // B,BL,BLX *
+    "co_data_trans" => ("|_Cond__|1_1_0|P|U|N|W|L|__Rn___|__CRd__|__CPN__|____Offset_____|", 1),  // CoDataTrans
+    "co_data_op"    => ("|_Cond__|1_1_1_0|_CPopc_|__CRn__|__CRd__|__CPN__|_CP__|0|__CRm__|", 1),  // CoDataOp
+    "co_reg_trans"  => ("|_Cond__|1_1_1_0|CPopc|L|__CRn__|__Rd___|__CPN__|_CP__|1|__CRm__|", 1),  // CoRegTrans
+    "swi"           => ("|_Cond__|1_1_1_1|_____________Ignored_by_Processor______________|", 1),  // SWI *
+    };
+
+    gen_op_parser(&mut f, &ops_desc)?;
+
+    let dest_path_thumb = Path::new(&out_dir).join("op_raw_thumb.rs");
+    let mut f_thumb = File::create(&dest_path_thumb).unwrap();
+
+    let ops_desc_thumb = hashmap! {
+     //                 |..........1 ..................0|
+     //                 |5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0|
+     "shifted"     => ("|0_0_0|Op_|_Offset__|_Rs__|_Rd__|", 1), // Shifted (1)
+     "add_sub"     => ("|0_0_0_1_1|I|O|_Rn__|_Rs__|_Rd__|", 0), // ADD/SUB (2)
+     "imm"         => ("|0_0_1|Op_|_Rd__|____Offset_____|", 0), // Immedi. (3)
+     "alu_op"      => ("|0_1_0_0_0_0|__Op___|_Rs__|_Rd__|", 0), // AluOp (4)
+     "hi_reg_bx"   => ("|0_1_0_0_0_1|Op_|D|S|_Rs__|_Rd__|", 0), // HiReg/BX (5)
+     "ldr_pc"      => ("|0_1_0_0_1|_Rd__|_____Word______|", 0), // LDR PC (6)
+     "ldr_str"     => ("|0_1_0_1|Op_|0|_Ro__|_Rb__|_Rd__|", 0), // LDR/STR (7)
+     "x_h_sb_sh"   => ("|0_1_0_1|Op_|1|_Ro__|_Rb__|_Rd__|", 0), // ""H/SB/SH (8)
+     "x_b"         => ("|0_1_1|Op_|_Offset__|_Rb__|_Rd__|", 0), // ""{B} (9)
+     "x_h"         => ("|1_0_0_0|Op_|_Offset|_Rb__|_Rd__|", 0), // ""H (10)
+     "x_sp"        => ("|1_0_0_1|Op_|_Rd__|___Word______|", 0), // "" SP (11)
+     "add_pc_sp"   => ("|1_0_1_0|Op_|_Rd__|___Word______|", 0), // ADD PC/SP (12)
+     "add_sp_nn"   => ("|1_0_1_1_0_0_0_0|S|___Word______|", 0), // ADD SP,nn (13)
+     "push_pop"    => ("|1_0_1_1|Op_|1_0|R|___Rlist_____|", 0), // PUSH/POP (14)
+     "stm_ldm"     => ("|1_1_0_0|Op_|_Rb__|___Rlist_____|", 0), // STM/LDM (15)
+     "branch_cond" => ("|1_1_0_1|__Cond_|_Signed_Offset_|", 1), // B{cond} (16)
+     "swi"         => ("|1_1_0_1_1_1_1_1|___User_Data___|", 0), // SWI (17)
+     "branch"      => ("|1_1_1_0_0|_______Offset________|", 0), // B (18)
+     "branch_link" => ("|1_1_1_1|H|___Offset_Low_High___|", 0), // BL,BLX (19)
+    };
+
+    gen_op_parser(&mut f_thumb, &ops_desc_thumb)
 }

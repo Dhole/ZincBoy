@@ -5,6 +5,7 @@ use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 
 include!(concat!(env!("OUT_DIR"), "/op_raw.rs"));
+// include!(concat!(env!("OUT_DIR"), "/op_raw_thumb.rs"));
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, FromPrimitive, ToPrimitive)]
 pub enum Cond {
@@ -1262,12 +1263,12 @@ impl Op {
             OpBase::Branch(op) => op.asm(pc),
             OpBase::SoftInt(op) => op.asm(pc),
             OpBase::Multiply(op) => op.asm(pc),
-            OpBase::Undefined(op) => op.asm(pc),
             OpBase::Psr(op) => op.asm(pc),
             OpBase::Memory(op) => op.asm(pc),
             OpBase::Swap(op) => op.asm(pc),
             OpBase::MemoryBlock(op) => op.asm(pc),
             OpBase::CoOp(op) => op.asm(pc),
+            OpBase::Undefined(op) => op.asm(pc),
             OpBase::Unknown(op) => op.asm(pc),
             OpBase::Invalid(op) => op.asm(pc),
         };
