@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io;
 use std::io::Read;
 
-use zincboy::ARM7TDMI::op_raw::OpRaw;
+use zincboy::ARM7TDMI::op::Op;
 
 fn main() -> Result<(), io::Error> {
     let filename = env::args().nth(1).unwrap();
@@ -20,8 +20,7 @@ fn main() -> Result<(), io::Error> {
             break;
         }
         let word = u32::from_le_bytes(*array_ref![data, i, 4]);
-        let op_raw = OpRaw::new(word);
-        let op = op_raw.to_op();
+        let op = Op::decode_arm(word);
         // println!("{:08x}: {:08x} {:?}", i, word.to_be(), op.to_op());
         println!(
             "{:08x}: {:08x} {} | {:?}",

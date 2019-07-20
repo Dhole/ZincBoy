@@ -1,10 +1,13 @@
+use super::op_raw_arm;
+use super::op_raw_thumb;
+
 use std::fmt;
 use std::num::Wrapping;
 
 use num_derive::{FromPrimitive, ToPrimitive};
-use num_traits::FromPrimitive;
+// use num_traits::FromPrimitive;
 
-include!(concat!(env!("OUT_DIR"), "/op_raw.rs"));
+// include!(concat!(env!("OUT_DIR"), "/op_raw.rs"));
 // include!(concat!(env!("OUT_DIR"), "/op_raw_thumb.rs"));
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, FromPrimitive, ToPrimitive)]
@@ -58,10 +61,10 @@ impl fmt::Display for Cond {
 
 #[derive(Debug, Clone)]
 pub struct StatusRegFields {
-    f: bool,
-    s: bool,
-    x: bool,
-    c: bool,
+    pub f: bool,
+    pub s: bool,
+    pub x: bool,
+    pub c: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -228,8 +231,8 @@ pub enum OpBase {
 
 #[derive(Debug)]
 pub struct Op {
-    cond: Cond,
-    base: OpBase,
+    pub cond: Cond,
+    pub base: OpBase,
 }
 
 #[derive(Debug, Clone, Copy, FromPrimitive, ToPrimitive)]
@@ -314,15 +317,15 @@ pub enum AluOp2RegisterShift {
 
 #[derive(Debug)]
 pub struct AluOp2Register {
-    shift: AluOp2RegisterShift,
-    st: ShiftType,
-    rm: u8,
+    pub shift: AluOp2RegisterShift,
+    pub st: ShiftType,
+    pub rm: u8,
 }
 
 #[derive(Debug)]
 pub struct AluOp2Immediate {
-    shift: u8,
-    immediate: u8,
+    pub shift: u8,
+    pub immediate: u8,
 }
 
 #[derive(Debug)]
@@ -334,11 +337,11 @@ pub enum AluOp2 {
 // Data Processing
 #[derive(Debug)]
 pub struct Alu {
-    op: AluOp,
-    s: bool,
-    rn: u8,
-    rd: u8,
-    op2: AluOp2,
+    pub op: AluOp,
+    pub s: bool,
+    pub rn: u8,
+    pub rd: u8,
+    pub op2: AluOp2,
 }
 
 impl Alu {
@@ -398,62 +401,6 @@ impl Alu {
     }
 }
 
-impl OpRawDataProcA {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Alu {
-            op: AluOp::from_u8(self.op).unwrap(),
-            s: self.s,
-            rn: self.rn,
-            rd: self.rd,
-            op2: AluOp2::Register(AluOp2Register {
-                shift: AluOp2RegisterShift::Immediate(self.shift),
-                st: ShiftType::from_u8(self.typ).unwrap(),
-                rm: self.rm,
-            }),
-        }.validate(self.word),
-        }
-    }
-}
-
-impl OpRawDataProcB {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Alu {
-                op: AluOp::from_u8(self.op).unwrap(),
-                s: self.s,
-                rn: self.rn,
-                rd: self.rd,
-                op2: AluOp2::Register(AluOp2Register {
-                    shift: AluOp2RegisterShift::Register(self.rs),
-                    st: ShiftType::from_u8(self.typ).unwrap(),
-                    rm: self.rm,
-                }),
-            }.validate(self.word),
-        }
-    }
-}
-
-impl OpRawDataProcC {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Alu {
-                op: AluOp::from_u8(self.op).unwrap(),
-                s: self.s,
-                rn: self.rn,
-                rd: self.rd,
-                op2: AluOp2::Immediate(AluOp2Immediate {
-                    shift: self.shift,
-                    immediate: self.immediate,
-                }),
-            }.validate(self.word),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum BranchAddr {
     Register(u8),
@@ -462,9 +409,9 @@ pub enum BranchAddr {
 
 #[derive(Debug)]
 pub struct Branch {
-    link: bool,
-    exchange: bool,
-    addr: BranchAddr,
+    pub link: bool,
+    pub exchange: bool,
+    pub addr: BranchAddr,
 }
 
 impl Branch {
@@ -504,42 +451,9 @@ impl Branch {
     // do.
 }
 
-impl OpRawBranchReg {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Branch {
-                link: self.l,
-                exchange: true,
-                addr: BranchAddr::Register(self.rn),
-            }.validate(self.word),
-        }
-    }
-}
-
-impl OpRawBranchOff {
-    pub fn to_op(&self) -> Op {
-        let exchange = self.cond == 0b1111;
-        let link = if exchange { true } else { self.l };
-        let offset = if self.offset < 0b100000000000000000000000 {
-            self.offset as i32
-        } else {
-            -((0b1000000000000000000000000 - self.offset) as i32)
-        };
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Branch {
-                link: link,
-                exchange: exchange,
-                addr: BranchAddr::Offset(offset, self.l),
-            }.validate(self.word),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct SoftInt {
-    imm: u32,
+    pub imm: u32,
 }
 
 impl SoftInt {
@@ -547,22 +461,6 @@ impl SoftInt {
         Assembly::new("", "swi", vec![], Args::new(&[Arg::Val(self.imm)]))
     }
     pub fn validate(self, _word: u32) -> OpBase { OpBase::SoftInt(self) }
-}
-
-impl OpRawSwi {
-    pub fn to_op(&self) -> Op {
-        let cond = Cond::from_u8(self.cond).unwrap();
-        // TODO
-        // if cond != Cond::AL {
-        //     return None;
-        // }
-        Op {
-            cond: cond,
-            base: SoftInt {
-                imm: self.ignoredby_processor,
-            }.validate(self.word),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -585,11 +483,11 @@ pub enum MultiplyReg {
 
 #[derive(Debug)]
 pub struct Multiply {
-    acc: Option<MultiplyReg>,
-    set_cond: bool,
-    signed: bool,
-    res: MultiplyReg,
-    ops_reg: (u8, u8),
+    pub acc: Option<MultiplyReg>,
+    pub set_cond: bool,
+    pub signed: bool,
+    pub res: MultiplyReg,
+    pub ops_reg: (u8, u8),
 }
 
 impl Multiply {
@@ -620,44 +518,6 @@ impl Multiply {
     pub fn validate(self, _word: u32) -> OpBase { OpBase::Multiply(self) }
 }
 
-impl OpRawMultiply {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Multiply {
-                acc: if self.a {
-                    Some(MultiplyReg::Reg(self.rn))
-                } else {
-                    None
-                },
-                signed: false,
-                set_cond: self.s,
-                res: MultiplyReg::Reg(self.rd),
-                ops_reg: (self.rm, self.rs),
-            }.validate(self.word),
-        }
-    }
-}
-
-impl OpRawMultiplyLong {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Multiply {
-                acc: if self.a {
-                    Some(MultiplyReg::RegHiLo(self.rd_hi, self.rd_lo))
-                } else {
-                    None
-                },
-                signed: self.u,
-                set_cond: self.s,
-                res: MultiplyReg::RegHiLo(self.rd_hi, self.rd_lo),
-                ops_reg: (self.rm, self.rs),
-            }.validate(self.word),
-        }
-    }
-}
-
 // #[derive(Debug)]
 // pub struct Breakpoint {
 //     comment: (u16, u8),
@@ -665,7 +525,7 @@ impl OpRawMultiplyLong {
 
 #[derive(Debug)]
 pub struct Undefined {
-    xxx: (u32, u8),
+    pub xxx: (u32, u8),
 }
 
 impl Undefined {
@@ -679,21 +539,10 @@ impl Undefined {
     }
 }
 
-impl OpRawUndefined {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Undefined(Undefined {
-                xxx: (self.xxx, self.yyy),
-            }),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct MsrSrcImmediate {
-    shift: u8,
-    immediate: u32,
+    pub shift: u8,
+    pub immediate: u32,
 }
 
 #[derive(Debug)]
@@ -704,16 +553,16 @@ pub enum MsrSrc {
 
 #[derive(Debug)]
 pub struct Msr {
-    f: bool,
-    s: bool,
-    x: bool,
-    c: bool,
-    src: MsrSrc,
+    pub f: bool,
+    pub s: bool,
+    pub x: bool,
+    pub c: bool,
+    pub src: MsrSrc,
 }
 
 #[derive(Debug)]
 pub struct Mrs {
-    rd: u8,
+    pub rd: u8,
 }
 
 #[derive(Debug)]
@@ -724,8 +573,8 @@ pub enum PsrOp {
 
 #[derive(Debug)]
 pub struct Psr {
-    spsr: bool,
-    op: PsrOp,
+    pub spsr: bool,
+    pub op: PsrOp,
 }
 
 impl Psr {
@@ -774,53 +623,6 @@ impl Psr {
     }
 }
 
-impl OpRawPsrImm {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Psr {
-                spsr: self.p,
-                op: PsrOp::Msr(Msr {
-                    f: self.field & 0b1000 != 0,
-                    s: self.field & 0b0100 != 0,
-                    x: self.field & 0b0010 != 0,
-                    c: self.field & 0b0001 != 0,
-                    src: MsrSrc::Immediate(MsrSrcImmediate {
-                        shift: self.shift,
-                        immediate: self.immediate as u32,
-                    }),
-                }),
-            }.validate(self.word),
-        }
-    }
-}
-
-impl OpRawPsrReg {
-    pub fn to_op(&self) -> Op {
-        let psr = Psr {
-            spsr: self.p,
-            op: if self.l {
-                PsrOp::Msr(Msr {
-                    f: self.field & 0b1000 != 0,
-                    s: self.field & 0b0100 != 0,
-                    x: self.field & 0b0010 != 0,
-                    c: self.field & 0b0001 != 0,
-                    src: MsrSrc::Register(self.rm),
-                })
-            } else {
-                PsrOp::Mrs(Mrs { rd: self.rd })
-            },
-        };
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: match &psr.op {
-                PsrOp::Mrs(_) if self.field != 0b1111 => OpBase::Invalid(Invalid::new(self.word)),
-                _ => psr.validate(self.word),
-            }
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum MemoryOp {
     Store,
@@ -829,9 +631,9 @@ pub enum MemoryOp {
 
 #[derive(Debug)]
 pub struct MemoryAddrReg {
-    rm: u8,
-    st: ShiftType,
-    shift: u8,
+    pub rm: u8,
+    pub st: ShiftType,
+    pub shift: u8,
 }
 
 #[derive(Debug)]
@@ -856,14 +658,14 @@ pub enum MemorySize {
 // Load, Store
 #[derive(Debug)]
 pub struct Memory {
-    op: MemoryOp,
-    addr: MemoryAddr,
-    rn: u8,
-    rd: u8,
-    pre_post: MemoryPrePost,
-    add_offset: bool,
-    size: MemorySize,
-    signed: bool,
+    pub op: MemoryOp,
+    pub addr: MemoryAddr,
+    pub rn: u8,
+    pub rd: u8,
+    pub pre_post: MemoryPrePost,
+    pub add_offset: bool,
+    pub size: MemorySize,
+    pub signed: bool,
 }
 
 impl Memory {
@@ -923,144 +725,16 @@ impl Memory {
     }
 }
 
-impl OpRawTransImm9 {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Memory {
-                add_offset: self.u,
-                pre_post: if self.p {
-                    MemoryPrePost::Pre(self.w)
-                } else {
-                    MemoryPrePost::Post(self.w)
-                },
-                op: if self.l {
-                    MemoryOp::Load
-                } else {
-                    MemoryOp::Store
-                },
-                size: if self.b {
-                    MemorySize::Byte
-                } else {
-                    MemorySize::Word
-                },
-                signed: false,
-                addr: MemoryAddr::Immediate(self.offset),
-                rn: self.rn,
-                rd: self.rd,
-            }.validate(self.word),
-        }
-    }
-}
-
-impl OpRawTransReg9 {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Memory {
-                add_offset: self.u,
-                pre_post: if self.p {
-                    MemoryPrePost::Pre(self.w)
-                } else {
-                    MemoryPrePost::Post(self.w)
-                },
-                op: if self.l {
-                    MemoryOp::Load
-                } else {
-                    MemoryOp::Store
-                },
-                size: if self.b {
-                    MemorySize::Byte
-                } else {
-                    MemorySize::Word
-                },
-                signed: false,
-                addr: MemoryAddr::Register(MemoryAddrReg {
-                    shift: self.shift,
-                    st: ShiftType::from_u8(self.typ).unwrap(),
-                    rm: self.rm,
-                }),
-                rn: self.rn,
-                rd: self.rd,
-            }.validate(self.word),
-        }
-    }
-}
-
-impl OpRawTransImm10 {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Memory {
-                add_offset: self.u,
-                pre_post: if self.p {
-                    MemoryPrePost::Pre(self.w)
-                } else {
-                    MemoryPrePost::Post(false)
-                },
-                op: if self.l {
-                    MemoryOp::Load
-                } else {
-                    MemoryOp::Store
-                },
-                size: if self.h {
-                    MemorySize::Half
-                } else {
-                    MemorySize::Byte
-                },
-                signed: self.s,
-                addr: MemoryAddr::Immediate((self.offset_h << 4 | self.offset_l).into()),
-                rn: self.rn,
-                rd: self.rd,
-            }.validate(self.word),
-        }
-    }
-}
-
-impl OpRawTransReg10 {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Memory {
-                add_offset: self.u,
-                pre_post: if self.p {
-                    MemoryPrePost::Pre(self.w)
-                } else {
-                    MemoryPrePost::Post(false)
-                },
-                op: if self.l {
-                    MemoryOp::Load
-                } else {
-                    MemoryOp::Store
-                },
-                size: if self.h {
-                    MemorySize::Half
-                } else {
-                    MemorySize::Byte
-                },
-                signed: self.s,
-                addr: MemoryAddr::Register(MemoryAddrReg {
-                    rm: self.rm,
-                    st: ShiftType::LSL,
-                    shift: 0,
-                }),
-                rn: self.rn,
-                rd: self.rd,
-            }.validate(self.word),
-        }
-    }
-}
-
 // Load, Store Memory
 #[derive(Debug)]
 pub struct MemoryBlock {
-    pre: bool,
-    add_offset: bool,
-    psr_force_user_bit: bool,
-    write_back: bool,
-    op: MemoryOp,
-    rn: u8,
-    reg_list: [bool; 16],
+    pub pre: bool,
+    pub add_offset: bool,
+    pub psr_force_user_bit: bool,
+    pub write_back: bool,
+    pub op: MemoryOp,
+    pub rn: u8,
+    pub reg_list: [bool; 16],
 }
 
 impl MemoryBlock {
@@ -1091,36 +765,12 @@ impl MemoryBlock {
     }
 }
 
-impl OpRawBlockTrans {
-    pub fn to_op(&self) -> Op {
-        let mut reg_list = [false; 16];
-        (0..16).for_each(|i| reg_list[i] = { self.register_list & (1 << i) != 0 });
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: MemoryBlock {
-                pre: self.p,
-                add_offset: self.u,
-                psr_force_user_bit: self.s,
-                write_back: self.w,
-                op: if self.l {
-                    MemoryOp::Load
-                } else {
-                    MemoryOp::Store
-                },
-                rn: self.rn,
-                reg_list: reg_list,
-            }.validate(self.word),
-        }
-        // TODO: Handle Strange Effects on Invalid Rlist's (gbatek.txt:50409)
-    }
-}
-
 #[derive(Debug)]
 pub struct Swap {
-    rn: u8,
-    rd: u8,
-    rm: u8,
-    byte: bool,
+    pub rn: u8,
+    pub rd: u8,
+    pub rm: u8,
+    pub byte: bool,
 }
 
 impl Swap {
@@ -1141,20 +791,6 @@ impl Swap {
     }
 }
 
-impl OpRawTransSwp12 {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: Swap {
-                rn: self.rn,
-                rd: self.rd,
-                rm: self.rm,
-                byte: self.b,
-            }.validate(self.word),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum CoOp {
     Todo(u32),
@@ -1167,36 +803,9 @@ impl CoOp {
     pub fn validate(self, _word: u32) -> OpBase { OpBase::CoOp(self) }
 }
 
-impl OpRawCoDataTrans {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: CoOp::Todo(self.word).validate(self.word),
-        }
-    }
-}
-
-impl OpRawCoDataOp {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: CoOp::Todo(self.word).validate(self.word),
-        }
-    }
-}
-
-impl OpRawCoRegTrans {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: CoOp::Todo(self.word).validate(self.word),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Unknown {
-    word: u32,
+    pub word: u32,
 }
 
 impl Unknown {
@@ -1205,18 +814,9 @@ impl Unknown {
     }
 }
 
-impl OpRawUnknown {
-    pub fn to_op(&self) -> Op {
-        Op {
-            cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Unknown(Unknown { word: self.word }),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Invalid {
-    word: u32,
+    pub word: u32,
 }
 
 impl Invalid {
@@ -1228,35 +828,17 @@ impl Invalid {
     }
 }
 
-impl OpRaw {
-    pub fn to_op(&self) -> Op {
-        match self {
-            OpRaw::DataProcA(o) => o.to_op(),
-            OpRaw::DataProcB(o) => o.to_op(),
-            OpRaw::DataProcC(o) => o.to_op(),
-            OpRaw::BranchReg(o) => o.to_op(),
-            OpRaw::BranchOff(o) => o.to_op(),
-            OpRaw::Swi(o) => o.to_op(),
-            OpRaw::Multiply(o) => o.to_op(),
-            OpRaw::MultiplyLong(o) => o.to_op(),
-            OpRaw::PsrImm(o) => o.to_op(),
-            OpRaw::PsrReg(o) => o.to_op(),
-            OpRaw::TransImm9(o) => o.to_op(),
-            OpRaw::TransReg9(o) => o.to_op(),
-            OpRaw::TransImm10(o) => o.to_op(),
-            OpRaw::TransReg10(o) => o.to_op(),
-            OpRaw::TransSwp12(o) => o.to_op(),
-            OpRaw::BlockTrans(o) => o.to_op(),
-            OpRaw::CoDataTrans(o) => o.to_op(),
-            OpRaw::CoDataOp(o) => o.to_op(),
-            OpRaw::CoRegTrans(o) => o.to_op(),
-            OpRaw::Undefined(o) => o.to_op(),
-            OpRaw::Unknown(o) => o.to_op(),
+impl Op {
+    pub fn decode_arm(word: u32) -> Op {
+        let op_raw = op_raw_arm::OpRaw::new(word);
+        op_raw.to_op()
+    }
+    pub fn decode_thumb(word: u16) -> Op {
+        Op{
+            cond: Cond::AL,
+            base: OpBase::Undefined(Undefined{xxx: (0,0)}),
         }
     }
-}
-
-impl Op {
     pub fn asm(&self, pc: u32) -> Assembly {
         let mut asm = match &self.base {
             OpBase::Alu(op) => op.asm(pc),
@@ -1279,7 +861,7 @@ impl Op {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::op_raw_arm;
 
     #[test]
     fn op_asm() {
@@ -1470,7 +1052,7 @@ mod tests {
             );
         }
         for (word, asm_good, _) in &words_asms {
-            let op_raw = OpRaw::new(*word);
+            let op_raw = op_raw_arm::OpRaw::new(*word);
             let op = op_raw.to_op();
             let asm = op.asm(pc);
             println!(

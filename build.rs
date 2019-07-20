@@ -237,7 +237,7 @@ fn gen_op_parser(f: &mut File, ops_desc: &HashMap<&str, (&str, u64)>) -> Result<
 fn main() -> Result<(), io::Error> {
     let out_dir = env::var("OUT_DIR").unwrap();
 
-    let dest_path = Path::new(&out_dir).join("op_raw.rs");
+    let dest_path = Path::new(&out_dir).join("op_raw_arm.rs");
     let mut f = File::create(&dest_path).unwrap();
 
     let ops_desc = hashmap! {
@@ -278,14 +278,14 @@ fn main() -> Result<(), io::Error> {
      "imm"         => ("|0_0_1|Op_|_Rd__|____Offset_____|", 0), // Immedi. (3)
      "alu_op"      => ("|0_1_0_0_0_0|__Op___|_Rs__|_Rd__|", 0), // AluOp (4)
      "hi_reg_bx"   => ("|0_1_0_0_0_1|Op_|D|S|_Rs__|_Rd__|", 0), // HiReg/BX (5)
-     "ldr_pc"      => ("|0_1_0_0_1|_Rd__|_____Word______|", 0), // LDR PC (6)
+     "ldr_pc"      => ("|0_1_0_0_1|_Rd__|______nn_______|", 0), // LDR PC (6)
      "ldr_str"     => ("|0_1_0_1|Op_|0|_Ro__|_Rb__|_Rd__|", 0), // LDR/STR (7)
      "x_h_sb_sh"   => ("|0_1_0_1|Op_|1|_Ro__|_Rb__|_Rd__|", 0), // ""H/SB/SH (8)
      "x_b"         => ("|0_1_1|Op_|_Offset__|_Rb__|_Rd__|", 0), // ""{B} (9)
      "x_h"         => ("|1_0_0_0|Op_|_Offset|_Rb__|_Rd__|", 0), // ""H (10)
-     "x_sp"        => ("|1_0_0_1|Op_|_Rd__|___Word______|", 0), // "" SP (11)
-     "add_pc_sp"   => ("|1_0_1_0|Op_|_Rd__|___Word______|", 0), // ADD PC/SP (12)
-     "add_sp_nn"   => ("|1_0_1_1_0_0_0_0|S|___Word______|", 0), // ADD SP,nn (13)
+     "x_sp"        => ("|1_0_0_1|Op_|_Rd__|_____nn______|", 0), // "" SP (11)
+     "add_pc_sp"   => ("|1_0_1_0|Op_|_Rd__|_____nn______|", 0), // ADD PC/SP (12)
+     "add_sp_nn"   => ("|1_0_1_1_0_0_0_0|S|_____nn______|", 0), // ADD SP,nn (13)
      "push_pop"    => ("|1_0_1_1|Op_|1_0|R|___Rlist_____|", 0), // PUSH/POP (14)
      "stm_ldm"     => ("|1_1_0_0|Op_|_Rb__|___Rlist_____|", 0), // STM/LDM (15)
      "branch_cond" => ("|1_1_0_1|__Cond_|_Signed_Offset_|", 1), // B{cond} (16)
