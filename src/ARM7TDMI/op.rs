@@ -388,13 +388,13 @@ impl Alu {
         }
         Assembly::new("", mnemonic, mode, args)
     }
-    pub fn validate(self, word: u32) -> OpBase {
+    pub fn validate(self, inst_bin: u32) -> OpBase {
         match self.op {
-            AluOp::MOV | AluOp::MVN if self.rn != 0b0000 => OpBase::Invalid(Invalid::new(word)),
+            AluOp::MOV | AluOp::MVN if self.rn != 0b0000 => OpBase::Invalid(Invalid::new(inst_bin)),
             AluOp::CMP | AluOp::CMN | AluOp::TST | AluOp::TEQ
                 if self.rd != 0b0000 && self.rd != 0b1111 =>
             {
-                OpBase::Invalid(Invalid::new(word))
+                OpBase::Invalid(Invalid::new(inst_bin))
             }
             _ => OpBase::Alu(self),
         }
@@ -446,7 +446,7 @@ impl Branch {
         }]);
         Assembly::new("", "b", mode, args)
     }
-    pub fn validate(self, _word: u32) -> OpBase { OpBase::Branch(self) }
+    pub fn validate(self, _inst_bin: u32) -> OpBase { OpBase::Branch(self) }
     // TODO: According to the spec, Results is undefined behaviour if rn = r15.  Figure out what to
     // do.
 }
@@ -460,7 +460,7 @@ impl SoftInt {
     pub fn asm(&self, _pc: u32) -> Assembly {
         Assembly::new("", "swi", vec![], Args::new(&[Arg::Val(self.imm)]))
     }
-    pub fn validate(self, _word: u32) -> OpBase { OpBase::SoftInt(self) }
+    pub fn validate(self, _inst_bin: u32) -> OpBase { OpBase::SoftInt(self) }
 }
 
 #[derive(Debug)]
@@ -515,7 +515,7 @@ impl Multiply {
         }
         Assembly::new(pre, mnemonic, mode, args)
     }
-    pub fn validate(self, _word: u32) -> OpBase { OpBase::Multiply(self) }
+    pub fn validate(self, _inst_bin: u32) -> OpBase { OpBase::Multiply(self) }
 }
 
 // #[derive(Debug)]
@@ -608,12 +608,12 @@ impl Psr {
         };
         Assembly::new("", mnemonic, vec![], args)
     }
-    pub fn validate(self, word: u32) -> OpBase {
+    pub fn validate(self, inst_bin: u32) -> OpBase {
         match &self.op {
             PsrOp::Msr(msr) => {
                 if !msr.f && !msr.s && !msr.x && !msr.c {
                     // TODO: Figure out if this configuration is invalid or just a NOP
-                    OpBase::Invalid(Invalid::new(word))
+                    OpBase::Invalid(Invalid::new(inst_bin))
                 } else {
                     OpBase::Psr(self)
                 }
@@ -712,13 +712,13 @@ impl Memory {
         }
         Assembly::new("", mnemonic, mode, args)
     }
-    pub fn validate(self, word: u32) -> OpBase {
+    pub fn validate(self, inst_bin: u32) -> OpBase {
         if self.rn == self.rd {
-            return OpBase::Invalid(Invalid{word});
+            return OpBase::Invalid(Invalid{inst_bin});
         }
         if let MemoryAddr::Register(reg) = &self.addr {
             if self.rn == reg.rm {
-                return OpBase::Invalid(Invalid{word});
+                return OpBase::Invalid(Invalid{inst_bin});
             }
         }
         OpBase::Memory(self)
@@ -756,9 +756,9 @@ impl MemoryBlock {
         let args = Args::new(&[arg0, Arg::RegList(self.reg_list, self.psr_force_user_bit)]);
         Assembly::new("", mnemonic, mode, args)
     }
-    pub fn validate(self, word: u32) -> OpBase {
+    pub fn validate(self, inst_bin: u32) -> OpBase {
         if self.rn == 15 {
-            OpBase::Invalid(Invalid{word})
+            OpBase::Invalid(Invalid{inst_bin})
         } else {
             OpBase::MemoryBlock(self)
         }
@@ -782,9 +782,9 @@ impl Swap {
         ]);
         Assembly::new("", "swp", if self.byte { vec!["b"] } else { vec![] }, args)
     }
-    pub fn validate(self, word: u32) -> OpBase {
+    pub fn validate(self, inst_bin: u32) -> OpBase {
         if self.rn == 15 || self.rd == 15 || self.rm == 15 {
-            OpBase::Invalid(Invalid{word})
+            OpBase::Invalid(Invalid{inst_bin})
         } else {
             OpBase::Swap(self)
         }
@@ -800,12 +800,18 @@ impl CoOp {
     pub fn asm(&self, _pc: u32) -> Assembly {
         Assembly::new("", "CoOp(TODO)", vec![], Args::new(&[]))
     }
-    pub fn validate(self, _word: u32) -> OpBase { OpBase::CoOp(self) }
+    pub fn validate(self, _inst_bin: u32) -> OpBase { OpBase::CoOp(self) }
+}
+
+#[derive(Debug)]
+pub enum InstructionBin {
+    ARM(u32),
+    Thumb(u16),
 }
 
 #[derive(Debug)]
 pub struct Unknown {
-    pub word: u32,
+    pub inst: InstructionBin,
 }
 
 impl Unknown {
@@ -816,12 +822,12 @@ impl Unknown {
 
 #[derive(Debug)]
 pub struct Invalid {
-    pub word: u32,
+    pub inst_bin: u32,
 }
 
 impl Invalid {
-    pub fn new(word: u32) -> Self {
-        Invalid { word }
+    pub fn new(inst_bin: u32) -> Self {
+        Invalid { inst_bin }
     }
     pub fn asm(&self, _pc: u32) -> Assembly {
         Assembly::new("", "invalid", vec![], Args::new(&[]))
@@ -829,11 +835,11 @@ impl Invalid {
 }
 
 impl Op {
-    pub fn decode_arm(word: u32) -> Op {
-        let op_raw = op_raw_arm::OpRaw::new(word);
+    pub fn decode_arm(inst_bin: u32) -> Op {
+        let op_raw = op_raw_arm::OpRaw::new(inst_bin);
         op_raw.to_op()
     }
-    pub fn decode_thumb(word: u16) -> Op {
+    pub fn decode_thumb(inst_bin: u16) -> Op {
         Op{
             cond: Cond::AL,
             base: OpBase::Undefined(Undefined{xxx: (0,0)}),
@@ -867,7 +873,7 @@ mod tests {
     fn op_asm() {
         let pc = 0x12345678;
         #[rustfmt::skip]
-        let words_asms = vec![
+        let insts_bin_asm = vec![
             // Cond
             (0b0000_0001001011111111111100_0_1_0011,      "bxeq r3 ", "BX, BLX"),
             (0b0001_0001001011111111111100_0_1_0011,      "bxne r3 ", "BX, BLX"),
@@ -1043,22 +1049,22 @@ mod tests {
             (0b1110_100_0_1_0_0_1_1111_0000000101010000,  "invalid                  ", "BlockTrans"),
         ];
         println!("# Radare disasm");
-        for (word, _, desc) in &words_asms {
+        for (inst_bin, _, desc) in &insts_bin_asm {
             println!(
                 "rasm2 -a arm -b 32 -o 0x{:08x} -D {:08x} # {}",
                 pc,
-                (*word as u32).to_be(),
+                (*inst_bin as u32).to_be(),
                 desc,
             );
         }
-        for (word, asm_good, _) in &words_asms {
-            let op_raw = op_raw_arm::OpRaw::new(*word);
+        for (inst_bin, asm_good, _) in &insts_bin_asm {
+            let op_raw = op_raw_arm::OpRaw::new(*inst_bin);
             let op = op_raw.to_op();
             let asm = op.asm(pc);
             println!(
                 "{:08x}: {:08x} {} {:?}| {:?} - {:?}",
                 pc,
-                (*word as u32).to_be(),
+                (*inst_bin as u32).to_be(),
                 asm,
                 asm,
                 op,

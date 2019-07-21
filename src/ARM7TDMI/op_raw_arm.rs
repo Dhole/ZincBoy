@@ -46,7 +46,7 @@ impl OpRawDataProcA {
                 st: ShiftType::from_u8(self.typ).unwrap(),
                 rm: self.rm,
             }),
-        }.validate(self.word),
+        }.validate(self.inst_bin),
         }
     }
 }
@@ -65,7 +65,7 @@ impl OpRawDataProcB {
                     st: ShiftType::from_u8(self.typ).unwrap(),
                     rm: self.rm,
                 }),
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -83,7 +83,7 @@ impl OpRawDataProcC {
                     shift: self.shift,
                     immediate: self.immediate,
                 }),
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -96,7 +96,7 @@ impl OpRawBranchReg {
                 link: self.l,
                 exchange: true,
                 addr: BranchAddr::Register(self.rn),
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -116,7 +116,7 @@ impl OpRawBranchOff {
                 link: link,
                 exchange: exchange,
                 addr: BranchAddr::Offset(offset, self.l),
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -132,7 +132,7 @@ impl OpRawSwi {
             cond: cond,
             base: SoftInt {
                 imm: self.ignoredby_processor,
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -151,7 +151,7 @@ impl OpRawMultiply {
                 set_cond: self.s,
                 res: MultiplyReg::Reg(self.rd),
                 ops_reg: (self.rm, self.rs),
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -170,7 +170,7 @@ impl OpRawMultiplyLong {
                 set_cond: self.s,
                 res: MultiplyReg::RegHiLo(self.rd_hi, self.rd_lo),
                 ops_reg: (self.rm, self.rs),
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -202,7 +202,7 @@ impl OpRawPsrImm {
                         immediate: self.immediate as u32,
                     }),
                 }),
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -226,8 +226,8 @@ impl OpRawPsrReg {
         Op {
             cond: Cond::from_u8(self.cond).unwrap(),
             base: match &psr.op {
-                PsrOp::Mrs(_) if self.field != 0b1111 => OpBase::Invalid(Invalid::new(self.word)),
-                _ => psr.validate(self.word),
+                PsrOp::Mrs(_) if self.field != 0b1111 => OpBase::Invalid(Invalid::new(self.inst_bin)),
+                _ => psr.validate(self.inst_bin),
             }
         }
     }
@@ -258,7 +258,7 @@ impl OpRawTransImm9 {
                 addr: MemoryAddr::Immediate(self.offset),
                 rn: self.rn,
                 rd: self.rd,
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -292,7 +292,7 @@ impl OpRawTransReg9 {
                 }),
                 rn: self.rn,
                 rd: self.rd,
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -322,7 +322,7 @@ impl OpRawTransImm10 {
                 addr: MemoryAddr::Immediate((self.offset_h << 4 | self.offset_l).into()),
                 rn: self.rn,
                 rd: self.rd,
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -356,7 +356,7 @@ impl OpRawTransReg10 {
                 }),
                 rn: self.rn,
                 rd: self.rd,
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -379,7 +379,7 @@ impl OpRawBlockTrans {
                 },
                 rn: self.rn,
                 reg_list: reg_list,
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
         // TODO: Handle Strange Effects on Invalid Rlist's (gbatek.txt:50409)
     }
@@ -394,7 +394,7 @@ impl OpRawTransSwp12 {
                 rd: self.rd,
                 rm: self.rm,
                 byte: self.b,
-            }.validate(self.word),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -403,7 +403,7 @@ impl OpRawCoDataTrans {
     pub fn to_op(&self) -> Op {
         Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: CoOp::Todo(self.word).validate(self.word),
+            base: CoOp::Todo(self.inst_bin).validate(self.inst_bin),
         }
     }
 }
@@ -412,7 +412,7 @@ impl OpRawCoDataOp {
     pub fn to_op(&self) -> Op {
         Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: CoOp::Todo(self.word).validate(self.word),
+            base: CoOp::Todo(self.inst_bin).validate(self.inst_bin),
         }
     }
 }
@@ -421,7 +421,7 @@ impl OpRawCoRegTrans {
     pub fn to_op(&self) -> Op {
         Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: CoOp::Todo(self.word).validate(self.word),
+            base: CoOp::Todo(self.inst_bin).validate(self.inst_bin),
         }
     }
 }
@@ -430,7 +430,7 @@ impl OpRawUnknown {
     pub fn to_op(&self) -> Op {
         Op {
             cond: Cond::from_u8(self.cond).unwrap(),
-            base: OpBase::Unknown(Unknown { word: self.word }),
+            base: OpBase::Unknown(Unknown { inst: InstructionBin::ARM(self.inst_bin) }),
         }
     }
 }

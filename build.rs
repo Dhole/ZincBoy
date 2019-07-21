@@ -14,6 +14,12 @@ use inflector::Inflector;
 extern crate maplit;
 
 #[derive(Debug)]
+enum State {
+    ARM,
+    Thumb,
+}
+
+#[derive(Debug)]
 struct Param {
     name: String,
     start: usize,
@@ -50,7 +56,7 @@ struct Op {
     priority: u8, // use priorities so that some op are matched before others in ambiguos cases
 }
 
-fn bitarray2string(arr: [u32; 32]) -> String {
+fn bitarray2string(arr: &[u32]) -> String {
     arr.iter()
         .map(|b| b.to_string().chars().nth(0).unwrap())
         .fold(String::new(), |mut string, b| {
@@ -59,13 +65,19 @@ fn bitarray2string(arr: [u32; 32]) -> String {
         })
 }
 
-fn gen_op_parser(f: &mut File, ops_desc: &HashMap<&str, (&str, u64)>) -> Result<(), io::Error> {
+fn gen_op_parser(f: &mut File, state: State, ops_desc: &HashMap<&str, (&str, u64)>) -> Result<(), io::Error> {
+    let inst_len = match state {
+        State::ARM => 32,
+        State::Thumb => 16,
+    };
+    let inst_type = format!("u{}", inst_len);
     let mut ops = HashMap::new();
     for (op, (desc, priority)) in ops_desc.iter() {
         let elems: Vec<&str> = desc.split_at(1).1.split("|").collect();
         let mut params: Vec<Param> = Vec::new();
-        let mut val = [0; 32];
-        let mut mask = [0; 32];
+        let mut val = vec![0; inst_len];
+        let mut mask = vec![0; inst_len];
+        // let (mut val, mut mask) = ([0; 32], [0; 32]);
         let mut is_param = true;
         let mut param_end = 1;
         let mut elem_idx = 0;
@@ -74,8 +86,8 @@ fn gen_op_parser(f: &mut File, ops_desc: &HashMap<&str, (&str, u64)>) -> Result<
                 if is_param {
                     params.push(Param {
                         name: elems[elem_idx].replace("_", "").to_snake_case(),
-                        start: 31 - (i - 1) / 2,
-                        end: 31 - (param_end) / 2,
+                        start: (inst_len - 1) - (i - 1) / 2,
+                        end: (inst_len - 1) - (param_end) / 2,
                     })
                 }
                 elem_idx += 1;
@@ -93,8 +105,8 @@ fn gen_op_parser(f: &mut File, ops_desc: &HashMap<&str, (&str, u64)>) -> Result<
             }
         }
         ops.insert(op, Op {
-                value: bitarray2string(val),
-                mask: bitarray2string(mask),
+                value: bitarray2string(&val),
+                mask: bitarray2string(&mask),
                 params: params,
                 priority: *priority as u8,
             },
@@ -102,12 +114,12 @@ fn gen_op_parser(f: &mut File, ops_desc: &HashMap<&str, (&str, u64)>) -> Result<
     }
 
     for (op_name, op) in &ops {
-        write!(f, "pub const OP_{}_VAL:  u32 = 0b{};\n", op_name.to_uppercase(), op.value)?;
-        write!(f, "pub const OP_{}_MASK: u32 = 0b{};\n\n", op_name.to_uppercase(), op.mask)?;
+        write!(f, "pub const OP_{}_VAL:  {} = 0b{};\n", op_name.to_uppercase(), inst_type, op.value)?;
+        write!(f, "pub const OP_{}_MASK: {} = 0b{};\n\n", op_name.to_uppercase(), inst_type, op.mask)?;
         let op_name = format!("op_raw_{}", op_name).to_pascal_case();
         write!(f, "#[derive(Debug)]\n")?;
         write!(f, "pub struct {} {{\n", op_name)?;
-        write!(f, "  word: u32,\n")?;
+        write!(f, "  inst_bin: {},\n", inst_type)?;
         for param in &op.params {
             write!(f, "  {}: {},\n",
                 param.name,
@@ -122,15 +134,19 @@ fn gen_op_parser(f: &mut File, ops_desc: &HashMap<&str, (&str, u64)>) -> Result<
         write!(f, "}}\n\n")?;
 
         write!(f, "impl {} {{\n", op_name)?;
-        write!(f, "  pub fn new(v: u32) -> Self {{\n")?;
+        write!(f, "  pub fn new(v: {}) -> Self {{\n", inst_type)?;
         write!(f, "    Self {{\n")?;
         let max_len = op.params.iter().max_by_key(|p| p.name.len()).unwrap().name.len();
-        write!(f, "      {0:<max_len$}: v,\n", "word", max_len = max_len)?;
+        write!(f, "      {0:<max_len$}: v,\n", "inst_bin", max_len = max_len)?;
         for param in &op.params {
             let mask = (param.start..param.end+1).map(|i| 1 << i).fold(0, |acc, x| acc+x);
-            write!(f, "      {0:<max_len$}: ((v & 0b{1:032b}) >> {2:2}) {3},\n",
+            let mask_bin = match state {
+                State::ARM => format!("{:032b}", mask),
+                State::Thumb => format!("{:016b}", mask),
+            };
+            write!(f, "      {0:<max_len$}: ((v & 0b{1}) >> {2:2}) {3},\n",
                 param.name,
-                mask,
+                mask_bin,
                 param.start,
                 match param.typ() {
                     ParamType::Bool => "!= 0",
@@ -149,14 +165,22 @@ fn gen_op_parser(f: &mut File, ops_desc: &HashMap<&str, (&str, u64)>) -> Result<
     write!(f, "#[derive(Debug)]\n")?;
     write!(f, "pub struct OpRawUnknown {{\n")?;
     write!(f, "  cond: u8,\n")?;
-    write!(f, "  word: u32,\n")?;
+    write!(f, "  inst_bin: {},\n", inst_type)?;
     write!(f, "}}\n\n")?;
 
     write!(f, "impl OpRawUnknown {{\n")?;
-    write!(f, "  pub fn new(v: u32) -> Self {{\n")?;
+    write!(f, "  pub fn new(v: {}) -> Self {{\n", inst_type)?;
     write!(f, "    Self {{\n")?;
-    write!(f, "      cond     : ((v & 0b11110000000000000000000000000000) >> 28) as u8,\n")?;
-    write!(f, "      word     : ((v & 0b11111111111111111111111111111111) >>  0) as u32,\n")?;
+    match state {
+        State::ARM => {
+            write!(f, "      cond     : ((v & 0b11110000000000000000000000000000) >> 28) as u8,\n")?;
+            write!(f, "      inst_bin : ((v & 0b11111111111111111111111111111111) >>  0) as {},\n", inst_type)?;
+        },
+        State::Thumb => {
+            write!(f, "      cond     : 0b1110, // always\n")?;
+            write!(f, "      inst_bin : ((v & 0b1111111111111111) >> 0) as {},\n", inst_type)?;
+        },
+    }
     write!(f, "    }}\n")?;
     write!(f, "  }}\n")?;
     write!(f, "}}\n\n")?;
@@ -173,7 +197,7 @@ fn gen_op_parser(f: &mut File, ops_desc: &HashMap<&str, (&str, u64)>) -> Result<
     let max_len_pascal = ops.iter().max_by_key(|(name, _)| name.to_pascal_case().len())
         .unwrap().0.to_pascal_case().len();
     write!(f, "impl OpRaw {{\n")?;
-    write!(f, "  pub fn new(v: u32) -> Self {{\n")?;
+    write!(f, "  pub fn new(v: {}) -> Self {{\n", inst_type)?;
     write!(f, "    match v {{\n")?;
     for priority in 0..2 {
         if priority != 0 {
@@ -265,7 +289,7 @@ fn main() -> Result<(), io::Error> {
     "swi"           => ("|_Cond__|1_1_1_1|_____________Ignored_by_Processor______________|", 1),  // SWI *
     };
 
-    gen_op_parser(&mut f, &ops_desc)?;
+    gen_op_parser(&mut f, State::ARM, &ops_desc)?;
 
     let dest_path_thumb = Path::new(&out_dir).join("op_raw_thumb.rs");
     let mut f_thumb = File::create(&dest_path_thumb).unwrap();
@@ -294,5 +318,5 @@ fn main() -> Result<(), io::Error> {
      "branch_link" => ("|1_1_1_1|H|___Offset_Low_High___|", 0), // BL,BLX (19)
     };
 
-    gen_op_parser(&mut f_thumb, &ops_desc_thumb)
+    gen_op_parser(&mut f_thumb, State::Thumb, &ops_desc_thumb)
 }
