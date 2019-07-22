@@ -342,10 +342,36 @@ pub struct Alu {
     pub rn: u8,
     pub rd: u8,
     pub op2: AluOp2,
+    pub thumb: bool,
 }
 
 impl Alu {
     pub fn asm(&self, _pc: u32) -> Assembly {
+        // Thumb move shifted register
+        match (self.thumb, &self.op, &self.op2) {
+            (true, AluOp::MOV, AluOp2::Register(
+                    AluOp2Register { shift: AluOp2RegisterShift::Immediate(shift), st, rm})) => {
+                let mut mode = Vec::new();
+                if self.s {
+                    mode.push("s");
+                }
+                let mut args = Args::new(&[Arg::Reg(self.rd), Arg::Reg(*rm)]);
+                let mnemonic = match st {
+                    ShiftType::LSL if *shift == 0 => "mov",
+                    ShiftType::LSL => "lsl",
+                    ShiftType::LSR => "lsr",
+                    ShiftType::ASR => "asr",
+                    ShiftType::ROR => "ror",
+                };
+                match (st, shift) {
+                    (ShiftType::LSL, 0) => (),
+                    (_, 0) => args.push(Arg::Val(32)),
+                    (_, _) => args.push(Arg::Val(*shift as u32))
+                }
+                return Assembly::new("", mnemonic, mode, args);
+            },
+            _ => ()
+        }
         let mnemonic = self.op.as_str();
         let mut mode = Vec::new();
         match &self.op {
@@ -868,9 +894,10 @@ impl Op {
 #[cfg(test)]
 mod tests {
     use super::op_raw_arm;
+    use super::op_raw_thumb;
 
     #[test]
-    fn op_asm() {
+    fn op_arm_asm() {
         let pc = 0x12345678;
         #[rustfmt::skip]
         let insts_bin_asm = vec![
@@ -1065,6 +1092,45 @@ mod tests {
                 "{:08x}: {:08x} {} {:?}| {:?} - {:?}",
                 pc,
                 (*inst_bin as u32).to_be(),
+                asm,
+                asm,
+                op,
+                op_raw,
+            );
+            assert_eq!(*asm_good.trim_end(), format!("{}", asm));
+        }
+    }
+
+    #[test]
+    fn op_thumb_asm() {
+        let pc = 0x12345678;
+        #[rustfmt::skip]
+        let insts_bin_asm = vec![
+            //     Op Off   Rs  Rd
+            (0b000_00_00001_001_010, "lsls r2, r1, 1 ", "Shifted (1)"),
+            (0b000_00_00000_001_010, "movs r2, r1    ", "Shifted (1)"),
+            (0b000_01_00110_001_010, "lsrs r2, r1, 6 ", "Shifted (1)"),
+            (0b000_01_00000_001_010, "lsrs r2, r1, 32", "Shifted (1)"),
+            (0b000_10_11001_001_010, "asrs r2, r1, 25", "Shifted (1)"),
+            (0b000_10_00000_001_010, "asrs r2, r1, 32", "Shifted (1)"),
+        ];
+        println!("# Radare disasm");
+        for (inst_bin, _, desc) in &insts_bin_asm {
+            println!(
+                "rasm2 -a arm -b 16 -o 0x{:08x} -D {:04x} # {}",
+                pc,
+                (*inst_bin as u16).to_be(),
+                desc,
+            );
+        }
+        for (inst_bin, asm_good, _) in &insts_bin_asm {
+            let op_raw = op_raw_thumb::OpRaw::new(*inst_bin);
+            let op = op_raw.to_op();
+            let asm = op.asm(pc);
+            println!(
+                "{:08x}: {:04x} {} {:?}| {:?} - {:?}",
+                pc,
+                (*inst_bin as u16).to_be(),
                 asm,
                 asm,
                 op,

@@ -37,16 +37,17 @@ impl OpRawDataProcA {
         Op {
             cond: Cond::from_u8(self.cond).unwrap(),
             base: Alu {
-            op: AluOp::from_u8(self.op).unwrap(),
-            s: self.s,
-            rn: self.rn,
-            rd: self.rd,
-            op2: AluOp2::Register(AluOp2Register {
-                shift: AluOp2RegisterShift::Immediate(self.shift),
-                st: ShiftType::from_u8(self.typ).unwrap(),
-                rm: self.rm,
-            }),
-        }.validate(self.inst_bin),
+                thumb: false,
+                op: AluOp::from_u8(self.op).unwrap(),
+                s: self.s,
+                rn: self.rn,
+                rd: self.rd,
+                op2: AluOp2::Register(AluOp2Register {
+                    shift: AluOp2RegisterShift::Immediate(self.shift),
+                    st: ShiftType::from_u8(self.typ).unwrap(),
+                    rm: self.rm,
+                }),
+            }.validate(self.inst_bin),
         }
     }
 }
@@ -56,6 +57,7 @@ impl OpRawDataProcB {
         Op {
             cond: Cond::from_u8(self.cond).unwrap(),
             base: Alu {
+                thumb: false,
                 op: AluOp::from_u8(self.op).unwrap(),
                 s: self.s,
                 rn: self.rn,
@@ -75,6 +77,7 @@ impl OpRawDataProcC {
         Op {
             cond: Cond::from_u8(self.cond).unwrap(),
             base: Alu {
+                thumb: false,
                 op: AluOp::from_u8(self.op).unwrap(),
                 s: self.s,
                 rn: self.rn,
