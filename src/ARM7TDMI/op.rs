@@ -1113,6 +1113,13 @@ mod tests {
             (0b000_01_00000_001_010, "lsrs r2, r1, 32", "Shifted (1)"),
             (0b000_10_11001_001_010, "asrs r2, r1, 25", "Shifted (1)"),
             (0b000_10_00000_001_010, "asrs r2, r1, 32", "Shifted (1)"),
+            //       I O Rn  Rs  Rd
+            (0b00011_0_0_011_001_010, "adds r2, r1, r3", "ADD/SUB (2)"),
+            (0b00011_0_1_011_001_010, "subs r2, r1, r3", "ADD/SUB (2)"),
+            (0b00011_1_0_001_001_010, "adds r2, r1, 1 ", "ADD/SUB (2)"),
+            (0b00011_1_1_110_001_010, "subs r2, r1, 6 ", "ADD/SUB (2)"),
+            (0b00011_1_0_000_001_010, "adds r2, r1, 0 ", "ADD/SUB (2)"),
+            (0b00011_1_1_000_001_010, "subs r2, r1, 0 ", "ADD/SUB (2)"),
         ];
         println!("# Radare disasm");
         for (inst_bin, _, desc) in &insts_bin_asm {

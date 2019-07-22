@@ -54,9 +54,32 @@ impl OpRawShifted {
 
 impl OpRawAddSub {
     pub fn to_op(&self) -> Op {
+        let op = match self.o {
+            false => AluOp::ADD,
+            true => AluOp::SUB,
+        };
+        let op2 = if self.i {
+            AluOp2::Immediate(AluOp2Immediate {
+                shift: 0,
+                immediate: self.rn,
+            })
+        } else {
+            AluOp2::Register(AluOp2Register {
+                shift: AluOp2RegisterShift::Immediate(0),
+                st: ShiftType::LSL,
+                rm: self.rn,
+            })
+        };
         Op {
             cond: Cond::AL,
-            base: OpBase::Unknown(Unknown { inst: InstructionBin::Thumb(self.inst_bin) }),
+            base: OpBase::Alu(Alu {
+                thumb: true,
+                op: op,
+                s: true,
+                rn: self.rs,
+                rd: self.rd,
+                op2: op2,
+            }),
         }
     }
 }
