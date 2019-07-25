@@ -342,35 +342,51 @@ pub struct Alu {
     pub rn: u8,
     pub rd: u8,
     pub op2: AluOp2,
-    pub thumb: bool,
+    pub thumb: bool, // Wether the Op must be displayed as a thumb op (with special/reduced form)
 }
 
 impl Alu {
     pub fn asm(&self, _pc: u32) -> Assembly {
         // Thumb move shifted register
-        match (self.thumb, &self.op, &self.op2) {
-            (true, AluOp::MOV, AluOp2::Register(
-                    AluOp2Register { shift: AluOp2RegisterShift::Immediate(shift), st, rm})) => {
-                let mut mode = Vec::new();
-                if self.s {
-                    mode.push("s");
+        if self.thumb {
+            let mut mode = Vec::new();
+            if self.s {
+                mode.push("s");
+            }
+            let mut args = Args::new(&[Arg::Reg(self.rd)]);
+            match (&self.op, &self.op2) {
+                (
+                    AluOp::MOV,
+                    AluOp2::Register(AluOp2Register {
+                        shift: AluOp2RegisterShift::Immediate(shift),
+                        st,
+                        rm,
+                    }),
+                ) => {
+                    args.push(Arg::Reg(*rm));
+                    let mnemonic = match st {
+                        ShiftType::LSL if *shift == 0 => "mov",
+                        ShiftType::LSL => "lsl",
+                        ShiftType::LSR => "lsr",
+                        ShiftType::ASR => "asr",
+                        ShiftType::ROR => "ror",
+                    };
+                    match (st, shift) {
+                        (ShiftType::LSL, 0) => (),
+                        (_, 0) => args.push(Arg::Val(32)),
+                        (_, _) => args.push(Arg::Val(*shift as u32)),
+                    }
+                    return Assembly::new("", mnemonic, mode, args);
                 }
-                let mut args = Args::new(&[Arg::Reg(self.rd), Arg::Reg(*rm)]);
-                let mnemonic = match st {
-                    ShiftType::LSL if *shift == 0 => "mov",
-                    ShiftType::LSL => "lsl",
-                    ShiftType::LSR => "lsr",
-                    ShiftType::ASR => "asr",
-                    ShiftType::ROR => "ror",
-                };
-                match (st, shift) {
-                    (ShiftType::LSL, 0) => (),
-                    (_, 0) => args.push(Arg::Val(32)),
-                    (_, _) => args.push(Arg::Val(*shift as u32))
+                _ => {
+                    let mnemonic = self.op.as_str();
+                    match &self.op2 {
+                        AluOp2::Immediate(imm) => args.push(Arg::Val(imm.immediate as u32)),
+                        AluOp2::Register(reg) => args.push(Arg::Reg(reg.rm)),
+                    }
+                    return Assembly::new("", mnemonic, mode, args);
                 }
-                return Assembly::new("", mnemonic, mode, args);
-            },
-            _ => ()
+            }
         }
         let mnemonic = self.op.as_str();
         let mut mode = Vec::new();
@@ -472,7 +488,9 @@ impl Branch {
         }]);
         Assembly::new("", "b", mode, args)
     }
-    pub fn validate(self, _inst_bin: u32) -> OpBase { OpBase::Branch(self) }
+    pub fn validate(self, _inst_bin: u32) -> OpBase {
+        OpBase::Branch(self)
+    }
     // TODO: According to the spec, Results is undefined behaviour if rn = r15.  Figure out what to
     // do.
 }
@@ -486,7 +504,9 @@ impl SoftInt {
     pub fn asm(&self, _pc: u32) -> Assembly {
         Assembly::new("", "swi", vec![], Args::new(&[Arg::Val(self.imm)]))
     }
-    pub fn validate(self, _inst_bin: u32) -> OpBase { OpBase::SoftInt(self) }
+    pub fn validate(self, _inst_bin: u32) -> OpBase {
+        OpBase::SoftInt(self)
+    }
 }
 
 #[derive(Debug)]
@@ -541,7 +561,9 @@ impl Multiply {
         }
         Assembly::new(pre, mnemonic, mode, args)
     }
-    pub fn validate(self, _inst_bin: u32) -> OpBase { OpBase::Multiply(self) }
+    pub fn validate(self, _inst_bin: u32) -> OpBase {
+        OpBase::Multiply(self)
+    }
 }
 
 // #[derive(Debug)]
@@ -626,7 +648,9 @@ impl Psr {
                 Args::new(&[
                     Arg::StatusReg(status_reg, Some(fields)),
                     match &msr.src {
-                        MsrSrc::Immediate(imm) => Arg::Val(imm.immediate.rotate_right((imm.shift * 2) as u32)),
+                        MsrSrc::Immediate(imm) => {
+                            Arg::Val(imm.immediate.rotate_right((imm.shift * 2) as u32))
+                        }
                         MsrSrc::Register(rd) => Arg::Reg(*rd),
                     },
                 ])
@@ -643,7 +667,7 @@ impl Psr {
                 } else {
                     OpBase::Psr(self)
                 }
-            },
+            }
             _ => OpBase::Psr(self),
         }
     }
@@ -740,11 +764,11 @@ impl Memory {
     }
     pub fn validate(self, inst_bin: u32) -> OpBase {
         if self.rn == self.rd {
-            return OpBase::Invalid(Invalid{inst_bin});
+            return OpBase::Invalid(Invalid { inst_bin });
         }
         if let MemoryAddr::Register(reg) = &self.addr {
             if self.rn == reg.rm {
-                return OpBase::Invalid(Invalid{inst_bin});
+                return OpBase::Invalid(Invalid { inst_bin });
             }
         }
         OpBase::Memory(self)
@@ -784,7 +808,7 @@ impl MemoryBlock {
     }
     pub fn validate(self, inst_bin: u32) -> OpBase {
         if self.rn == 15 {
-            OpBase::Invalid(Invalid{inst_bin})
+            OpBase::Invalid(Invalid { inst_bin })
         } else {
             OpBase::MemoryBlock(self)
         }
@@ -810,7 +834,7 @@ impl Swap {
     }
     pub fn validate(self, inst_bin: u32) -> OpBase {
         if self.rn == 15 || self.rd == 15 || self.rm == 15 {
-            OpBase::Invalid(Invalid{inst_bin})
+            OpBase::Invalid(Invalid { inst_bin })
         } else {
             OpBase::Swap(self)
         }
@@ -826,7 +850,9 @@ impl CoOp {
     pub fn asm(&self, _pc: u32) -> Assembly {
         Assembly::new("", "CoOp(TODO)", vec![], Args::new(&[]))
     }
-    pub fn validate(self, _inst_bin: u32) -> OpBase { OpBase::CoOp(self) }
+    pub fn validate(self, _inst_bin: u32) -> OpBase {
+        OpBase::CoOp(self)
+    }
 }
 
 #[derive(Debug)]
@@ -866,9 +892,9 @@ impl Op {
         op_raw.to_op()
     }
     pub fn decode_thumb(inst_bin: u16) -> Op {
-        Op{
+        Op {
             cond: Cond::AL,
-            base: OpBase::Undefined(Undefined{xxx: (0,0)}),
+            base: OpBase::Undefined(Undefined { xxx: (0, 0) }),
         }
     }
     pub fn asm(&self, pc: u32) -> Assembly {
@@ -1120,6 +1146,13 @@ mod tests {
             (0b00011_1_1_110_001_010, "subs r2, r1, 6 ", "ADD/SUB (2)"),
             (0b00011_1_0_000_001_010, "adds r2, r1, 0 ", "ADD/SUB (2)"),
             (0b00011_1_1_000_001_010, "subs r2, r1, 0 ", "ADD/SUB (2)"),
+            (0b00011_1_0_101_010_010, "adds r2, r2, 5 ", "ADD/SUB (2)"),
+            (0b00011_1_1_101_010_010, "subs r2, r2, 5 ", "ADD/SUB (2)"),
+            //     Op Rd  Offset
+            (0b001_00_010_00000011, "movs r2, 3   ", "Immedi. (3)"),
+            (0b001_01_010_00010100, "cmp r2, 20   ", "Immedi. (3)"),
+            (0b001_10_010_10001000, "adds r2, 0x88", "Immedi. (3)"),
+            (0b001_11_010_10010110, "subs r2, 0x96", "Immedi. (3)"),
         ];
         println!("# Radare disasm");
         for (inst_bin, _, desc) in &insts_bin_asm {
