@@ -297,9 +297,9 @@ fn main() -> Result<(), io::Error> {
     let ops_desc_thumb = hashmap! {
      //                 |..........1 ..................0|
      //                 |5_4_3_2_1_0_9_8_7_6_5_4_3_2_1_0|
-     "shifted"     => ("|0_0_0|Op_|__Shift__|_Rs__|_Rd__|", 1), // Shifted (1)
-     "add_sub"     => ("|0_0_0_1_1|I|O|_Rn__|_Rs__|_Rd__|", 0), // ADD/SUB (2)
-     "imm"         => ("|0_0_1|Op_|_Rd__|____Offset_____|", 0), // Immedi. (3)
+     "shifted"     => ("|0_0_0|Op_|__Shift__|_Rs__|_Rd__|", 1), // Shifted (1) *
+     "add_sub"     => ("|0_0_0_1_1|I|O|_Rn__|_Rs__|_Rd__|", 0), // ADD/SUB (2) *
+     "imm"         => ("|0_0_1|Op_|_Rd__|____Offset_____|", 0), // Immedi. (3) *
      "alu_op"      => ("|0_1_0_0_0_0|__Op___|_Rs__|_Rd__|", 0), // AluOp (4)
      "hi_reg_bx"   => ("|0_1_0_0_0_1|Op_|D|S|_Rs__|_Rd__|", 0), // HiReg/BX (5)
      "ldr_pc"      => ("|0_1_0_0_1|_Rd__|______nn_______|", 0), // LDR PC (6)

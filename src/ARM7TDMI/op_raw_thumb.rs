@@ -111,10 +111,73 @@ impl OpRawImm {
 
 impl OpRawAluOp {
     pub fn to_op(&self) -> Op {
+        let mut rn = 0;
+        let mut op = AluOp::MOV;
+        let mut op2 = AluOp2::Register(AluOp2Register{ 
+                shift: AluOp2RegisterShift::Immediate(0),
+                st: ShiftType::LSL,
+                rm: self.rs,
+             });
+        match self.op {
+            0x2 | 0x3 | 0x4 | 0x7 => {
+                let st = match self.op {
+                    0x2 => ShiftType::LSL,
+                    0x3 => ShiftType::LSR,
+                    0x4 => ShiftType::ASR,
+                    0x7 => ShiftType::ROR,
+                    _ => unreachable!(),
+                };
+                rn = 0;
+                op2 = AluOp2::Register(AluOp2Register {
+                    shift: AluOp2RegisterShift::Register(self.rs),
+                    st: st,
+                    rm: self.rd,
+                });
+            },
+            0x9 => {
+                op = AluOp::RSB;
+            },
+            0xd => {
+                return Op {
+                    cond: Cond::AL,
+                    base: OpBase::Multiply(Multiply {
+                        acc: None,
+                        signed: false,
+                        set_cond: true,
+                        res: MultiplyReg::Reg(self.rd),
+                        ops_reg: (self.rd, self.rs),
+                    }),
+                };
+            },
+            _ => {
+                op = match self.op {
+                    0x0 => AluOp::AND,
+                    0x1 => AluOp::EOR,
+                    0x5 => AluOp::ADC,
+                    0x6 => AluOp::SBC,
+                    0x8 => AluOp::TST,
+                    0xa => AluOp::CMP,
+                    0xb => AluOp::CMN,
+                    0xc => AluOp::ORR,
+                    0xe => AluOp::BIC,
+                    0xf => AluOp::MVN,
+                    _ => unreachable!(),
+                };
+                rn = self.rd;
+            },
+        }
         Op {
             cond: Cond::AL,
-            base: OpBase::Unknown(Unknown {
-                inst: InstructionBin::Thumb(self.inst_bin),
+            base: OpBase::Alu(Alu {
+                thumb: true,
+                op: op,
+                s: match op {
+                    AluOp::TST | AluOp::CMP | AluOp::CMN => false,
+                    _ => true,
+                },
+                rn: rn,
+                rd: self.rd,
+                op2: op2,
             }),
         }
     }

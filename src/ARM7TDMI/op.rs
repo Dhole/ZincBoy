@@ -358,28 +358,37 @@ impl Alu {
                 (
                     AluOp::MOV,
                     AluOp2::Register(AluOp2Register {
-                        shift: AluOp2RegisterShift::Immediate(shift),
+                        shift, //: AluOp2RegisterShift::Immediate(shift),
                         st,
                         rm,
                     }),
                 ) => {
-                    args.push(Arg::Reg(*rm));
-                    let mnemonic = match st {
-                        ShiftType::LSL if *shift == 0 => "mov",
+                    let mut mnemonic = match st {
                         ShiftType::LSL => "lsl",
                         ShiftType::LSR => "lsr",
                         ShiftType::ASR => "asr",
                         ShiftType::ROR => "ror",
                     };
-                    match (st, shift) {
-                        (ShiftType::LSL, 0) => (),
-                        (_, 0) => args.push(Arg::Val(32)),
-                        (_, _) => args.push(Arg::Val(*shift as u32)),
+                    match shift {
+                        AluOp2RegisterShift::Immediate(shift) => {
+                            args.push(Arg::Reg(*rm));
+                            match (st, shift) {
+                                (ShiftType::LSL, 0) => {mnemonic = "mov";},
+                                (_, 0) => args.push(Arg::Val(32)),
+                                (_, _) => args.push(Arg::Val(*shift as u32)),
+                            }
+                        },
+                        AluOp2RegisterShift::Register(rs) => {
+                            args.push(Arg::Reg(*rs));
+                        },
                     }
                     return Assembly::new("", mnemonic, mode, args);
                 }
                 _ => {
-                    let mnemonic = self.op.as_str();
+                    let mnemonic = match self.op {
+                        AluOp::RSB => "neg",
+                        _ => self.op.as_str(),
+                    };
                     match &self.op2 {
                         AluOp2::Immediate(imm) => args.push(Arg::Val(imm.immediate as u32)),
                         AluOp2::Register(reg) => args.push(Arg::Reg(reg.rm)),
@@ -1153,6 +1162,23 @@ mod tests {
             (0b001_01_010_00010100, "cmp r2, 20   ", "Immedi. (3)"),
             (0b001_10_010_10001000, "adds r2, 0x88", "Immedi. (3)"),
             (0b001_11_010_10010110, "subs r2, 0x96", "Immedi. (3)"),
+            //        Op   Rs  Rd
+            (0b010000_0000_001_010, "ands r2, r1    ", "AluOp (4)"),
+            (0b010000_0001_001_010, "eors r2, r1    ", "AluOp (4)"),
+            (0b010000_0010_001_010, "lsls r2, r1    ", "AluOp (4)"),
+            (0b010000_0011_001_010, "lsrs r2, r1    ", "AluOp (4)"),
+            (0b010000_0100_001_010, "asrs r2, r1    ", "AluOp (4)"),
+            (0b010000_0101_001_010, "adcs r2, r1    ", "AluOp (4)"),
+            (0b010000_0110_001_010, "sbcs r2, r1    ", "AluOp (4)"),
+            (0b010000_0111_001_010, "rors r2, r1    ", "AluOp (4)"),
+            (0b010000_1000_001_010, "tst r2, r1     ", "AluOp (4)"),
+            (0b010000_1001_001_010, "negs r2, r1    ", "AluOp (4)"),
+            (0b010000_1010_001_010, "cmp r2, r1     ", "AluOp (4)"),
+            (0b010000_1011_001_010, "cmn r2, r1     ", "AluOp (4)"),
+            (0b010000_1100_001_010, "orrs r2, r1    ", "AluOp (4)"),
+            (0b010000_1101_001_010, "muls r2, r2, r1", "AluOp (4)"),
+            (0b010000_1110_001_010, "bics r2, r1    ", "AluOp (4)"),
+            (0b010000_1111_001_010, "mvns r2, r1    ", "AluOp (4)"),
         ];
         println!("# Radare disasm");
         for (inst_bin, _, desc) in &insts_bin_asm {
