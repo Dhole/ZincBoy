@@ -31,6 +31,7 @@ impl OpRaw {
     }
 }
 
+// THUMB.1
 impl OpRawShifted {
     pub fn to_op(&self) -> Op {
         Op {
@@ -51,6 +52,7 @@ impl OpRawShifted {
     }
 }
 
+// THUMB.2
 impl OpRawAddSub {
     pub fn to_op(&self) -> Op {
         let op = match self.o {
@@ -83,6 +85,7 @@ impl OpRawAddSub {
     }
 }
 
+// THUMB.3
 impl OpRawImm {
     pub fn to_op(&self) -> Op {
         let op = match self.op {
@@ -109,6 +112,7 @@ impl OpRawImm {
     }
 }
 
+// THUMB.4
 impl OpRawAluOp {
     pub fn to_op(&self) -> Op {
         let mut rn = 0;
@@ -183,17 +187,57 @@ impl OpRawAluOp {
     }
 }
 
+// THUMB.5
 impl OpRawHiRegBx {
     pub fn to_op(&self) -> Op {
+        let rs = self.rs + if self.s {0x8} else {0};
+        let base = match self.op {
+            0 | 1 | 2 => {
+                if !self.s && !self.d {
+                    OpBase::Invalid(Invalid::new(self.inst_bin as u32))
+                } else {
+                    let aluOp = match self.op {
+                        0 => AluOp::ADD,
+                        1 => AluOp::CMP,
+                        2 => AluOp::MOV,
+                        _ => unreachable!(),
+                    };
+                    let rd = self.rd + if self.d {0x8} else {0};
+                    OpBase::Alu(Alu{
+                        thumb: true,
+                        op: aluOp,
+                        s: false,
+                        rd: rd,
+                        rn: rs,
+                        op2: AluOp2::Register(AluOp2Register {
+                            shift: AluOp2RegisterShift::Immediate(0),
+                            st: ShiftType::LSL,
+                            rm: rs,
+                        })
+                    })
+                }
+            },
+            3 => {
+                if self.d {
+                    OpBase::Invalid(Invalid::new(self.inst_bin as u32))
+                } else {
+                    OpBase::Branch(Branch {
+                        link: false,
+                        exchange: true,
+                        addr: BranchAddr::Register(rs),
+                    })
+                }
+            },
+            _ => unreachable!(),
+        };
         Op {
             cond: Cond::AL,
-            base: OpBase::Unknown(Unknown {
-                inst: InstructionBin::Thumb(self.inst_bin),
-            }),
+            base: base,
         }
     }
 }
 
+// THUMB.6
 impl OpRawLdrPc {
     pub fn to_op(&self) -> Op {
         Op {
@@ -205,6 +249,7 @@ impl OpRawLdrPc {
     }
 }
 
+// THUMB.7
 impl OpRawLdrStr {
     pub fn to_op(&self) -> Op {
         Op {
@@ -216,6 +261,7 @@ impl OpRawLdrStr {
     }
 }
 
+// THUMB.8
 impl OpRawXHSbSh {
     pub fn to_op(&self) -> Op {
         Op {
@@ -227,6 +273,7 @@ impl OpRawXHSbSh {
     }
 }
 
+// THUMB.9
 impl OpRawXB {
     pub fn to_op(&self) -> Op {
         Op {
@@ -238,6 +285,7 @@ impl OpRawXB {
     }
 }
 
+// THUMB.10
 impl OpRawXH {
     pub fn to_op(&self) -> Op {
         Op {
@@ -249,6 +297,7 @@ impl OpRawXH {
     }
 }
 
+// THUMB.11
 impl OpRawXSp {
     pub fn to_op(&self) -> Op {
         Op {
@@ -260,6 +309,7 @@ impl OpRawXSp {
     }
 }
 
+// THUMB.12
 impl OpRawAddPcSp {
     pub fn to_op(&self) -> Op {
         Op {
@@ -271,6 +321,7 @@ impl OpRawAddPcSp {
     }
 }
 
+// THUMB.13
 impl OpRawAddSpNn {
     pub fn to_op(&self) -> Op {
         Op {
@@ -282,6 +333,7 @@ impl OpRawAddSpNn {
     }
 }
 
+// THUMB.14
 impl OpRawPushPop {
     pub fn to_op(&self) -> Op {
         Op {
@@ -293,6 +345,7 @@ impl OpRawPushPop {
     }
 }
 
+// THUMB.15
 impl OpRawStmLdm {
     pub fn to_op(&self) -> Op {
         Op {
@@ -304,6 +357,7 @@ impl OpRawStmLdm {
     }
 }
 
+// THUMB.16
 impl OpRawBranchCond {
     pub fn to_op(&self) -> Op {
         Op {
@@ -315,6 +369,7 @@ impl OpRawBranchCond {
     }
 }
 
+// THUMB.17
 impl OpRawSwi {
     pub fn to_op(&self) -> Op {
         Op {
@@ -326,6 +381,7 @@ impl OpRawSwi {
     }
 }
 
+// THUMB.18
 impl OpRawBranch {
     pub fn to_op(&self) -> Op {
         Op {
@@ -337,6 +393,7 @@ impl OpRawBranch {
     }
 }
 
+// THUMB.19
 impl OpRawBranchLink {
     pub fn to_op(&self) -> Op {
         Op {
